@@ -21,6 +21,9 @@ jobs:
         run: |
           PACKAGES=$(find . -name package.json -not -path "*/node_modules/*" -exec dirname {} \; | sed 's/^\.\///' | jq -R -s -c 'split("\n")[:-1]')
           echo "packages=$PACKAGES" >> $GITHUB_OUTPUT
+      - name: Debug Packages
+        run: |
+          echo "Detected packages: ${{ steps.find-packages.outputs.packages }}"
 
   build:
     needs: [detect-packages]
@@ -39,7 +42,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: src/${{ matrix.package }}
-        run: npm ci
+        run: |
+          ls -la
+          npm ci
 
       - name: Build package
         working-directory: src/${{ matrix.package }}
