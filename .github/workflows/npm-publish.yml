@@ -1,11 +1,11 @@
-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
-# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
-
-name: Node.js Package
+name: MCP Python Executor 
 
 on:
+  push:
+    branches:
+      - main
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   build:
@@ -15,19 +15,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'  # Added caching for better performance
       - run: npm ci
+      - run: npm run build  # Added build step
       - run: npm test
 
   publish-npm:
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
+          cache: 'npm'  # Added caching
       - run: npm ci
+      - run: npm run build  # Added build step
       - run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}  # Updated to match common convention
