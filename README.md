@@ -1,70 +1,189 @@
-# mcp-python-executor MCP Server
+# MCP Python Executor Server
 
-A MCP server for executing python scripts.
-
-This is a TypeScript-based MCP server that implements a simple notes system. It demonstrates core MCP concepts by providing:
-
-- Resources representing text notes with URIs and metadata
-- Tools for creating new notes
-- Prompts for generating summaries of notes
+A Model Context Protocol (MCP) server that enables secure Python code execution and package management within the Claude environment. This server allows Claude to execute Python code snippets and manage Python packages dynamically.
 
 ## Features
 
-### Resources
-- List and access notes via `note://` URIs
-- Each note has a title, content and metadata
-- Plain text mime type for simple content access
+### Python Code Execution
+- Execute arbitrary Python code snippets
+- Support for input data streams
+- Secure execution in isolated environment
+- Unbuffered output for real-time feedback
+- Automatic cleanup of temporary script files
 
-### Tools
-- `create_note` - Create new text notes
-  - Takes title and content as required parameters
-  - Stores note in server state
+### Package Management
+- Dynamic Python package installation via pip
+- Support for pre-configured package installation
+- Batch package installation capabilities
+- Error handling and feedback for failed installations
 
-### Prompts
-- `summarize_notes` - Generate a summary of all stored notes
-  - Includes all note contents as embedded resources
-  - Returns structured prompt for LLM summarization
+## Tools
 
-## Development
+### `execute_python`
+Executes Python code and returns the results.
 
-Install dependencies:
+Parameters:
+- `code` (string, required): Python code to execute
+- `inputData` (string[], optional): Array of input strings for the script
+
+Example:
+```json
+{
+  "name": "execute_python",
+  "arguments": {
+    "code": "print('Hello, World!')",
+    "inputData": ["optional", "input", "data"]
+  }
+}
+```
+
+### `install_packages`
+Installs Python packages using pip.
+
+Parameters:
+- `packages` (string[], required): Array of package names to install
+
+Example:
+```json
+{
+  "name": "install_packages",
+  "arguments": {
+    "packages": ["numpy", "pandas", "matplotlib"]
+  }
+}
+```
+
+## Environment Setup
+
+### Prerequisites
+- Node.js (v14 or higher)
+- Python (v3.6 or higher)
+- pip package manager
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone [repository-url]
+cd python-executor
+```
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-Build the server:
+3. Build the server:
 ```bash
 npm run build
 ```
+
+### Configuration
+
+#### Pre-installed Packages
+You can configure packages to be installed automatically when the server starts by setting the `PREINSTALLED_PACKAGES` environment variable:
+
+```bash
+export PREINSTALLED_PACKAGES="numpy pandas matplotlib"
+```
+
+#### Claude Desktop Integration
+
+Add the server configuration to your Claude Desktop config file:
+
+Windows:
+```json
+// %APPDATA%/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "mcp-python-executor": {
+      "command": "C:/path/to/python-executor/build/index.js",
+      "env": {
+        "PREINSTALLED_PACKAGES": "numpy pandas matplotlib"
+      }
+    }
+  }
+}
+```
+
+MacOS:
+```json
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "mcp-python-executor": {
+      "command": "/path/to/python-executor/build/index.js",
+      "env": {
+        "PREINSTALLED_PACKAGES": "numpy pandas matplotlib"
+      }
+    }
+  }
+}
+```
+
+## Development
+
+### Running in Development Mode
 
 For development with auto-rebuild:
 ```bash
 npm run watch
 ```
 
-## Installation
-
-To use with Claude Desktop, add the server config:
-
-On MacOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "mcp-python-executor": {
-      "command": "/path/to/mcp-python-executor/build/index.js"
-    }
-  }
-}
-```
-
 ### Debugging
 
-Since MCP servers communicate over stdio, debugging can be challenging. We recommend using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector), which is available as a package script:
+Since MCP servers communicate over stdio, debugging can be challenging. Use the built-in MCP Inspector:
 
 ```bash
 npm run inspector
 ```
 
-The Inspector will provide a URL to access debugging tools in your browser.
+The Inspector provides a web interface for:
+- Monitoring server input/output
+- Testing tool execution
+- Inspecting server state
+- Debugging errors
+
+### Error Handling
+
+The server implements comprehensive error handling:
+- Invalid argument validation
+- Python execution errors
+- Package installation failures
+- Server initialization errors
+
+All errors are properly logged and returned with appropriate MCP error codes.
+
+## Architecture
+
+The server is built using TypeScript and implements the Model Context Protocol. Key components:
+
+- `PythonExecutorServer`: Main server class handling MCP communication
+- `StdioServerTransport`: Manages stdio-based communication
+- Temporary file management for script execution
+- Environment configuration and initialization
+- Tool registration and request handling
+
+## Security Considerations
+
+- Scripts are executed in isolated temporary files
+- Automatic cleanup of temporary files
+- Input validation for all arguments
+- Package installation restricted to pip
+- Error isolation and proper handling
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+[Specify License]
+
+## Support
+
+For issues and feature requests, please use the GitHub issue tracker.
