@@ -5,54 +5,77 @@ All notable changes to the MCP Python Executor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Regular security updates and dependency patches
+
 ## [0.2.0] - 2024-03-18
 
 ### Added
 
-- Resource management system
-  - Memory usage limits and tracking
-  - Execution timeouts
-  - Concurrent execution limits
-- Metrics collection and monitoring
-  - Execution statistics (time, memory, success rate)
-  - Performance tracking
-  - Last execution history
-- Health check endpoint
+- Configuration System
+  - Environment variable support for all settings
+  - Default configuration with overrides
+  - Python version and package configuration
+  - Execution limits configuration
+  - Logging configuration
+
+- Resource Management
+  - Memory usage limits (configurable, default 512MB)
+  - Execution timeouts (configurable, default 30s)
+  - Concurrent execution limits (configurable, default 5)
+  - Resource cleanup on script completion
+
+- Metrics Collection
+  - Execution time tracking
+  - Memory usage monitoring
+  - Success/failure rates
+  - Historical execution data
+  - Performance statistics
+
+- Health Check System
   - Server status monitoring
-  - Configuration information
   - Python version detection
-  - Real-time metrics
-- Structured logging system
+  - Real-time metrics reporting
+  - Configuration information
+  - Active executions tracking
+
+- Structured Logging
+  - Multiple log levels (debug, info, error)
   - JSON/text format support
-  - Configurable log levels
   - Contextual information
-- Enhanced error handling
+  - Operation tracking
+  - Error details
+
+- Enhanced Error Handling
+  - Custom error types
   - Error categorization
   - Detailed error context
-  - Proper cleanup procedures
-- Configuration system
-  - Environment variable support
-  - Default configurations
-  - Runtime configuration updates
-- Comprehensive documentation
-  - README with usage examples
-  - API documentation
-  - Configuration guide
+  - Stack trace preservation
+  - Cleanup procedures
 
 ### Changed
 
-- Improved package management
-  - Pre-installed package support
-  - Better installation error handling
+- Package Management
+  - Added pre-installed package support
+  - Improved installation error handling
   - Package version tracking
-- Enhanced Python execution
-  - Better output capture
-  - Resource cleanup
-  - Error reporting
-- Updated TypeScript configuration
+  - Better dependency resolution
+
+- Python Execution
+  - Enhanced output capture
+  - Better resource management
+  - Improved error reporting
+  - Timeout handling
+  - Memory tracking
+
+- Project Structure
+  - Modular code organization
+  - TypeScript strict mode
   - ES modules support
-  - Strict type checking
-  - Better module resolution
+  - Better type definitions
 
 ### Fixed
 
@@ -60,22 +83,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Temporary file cleanup issues
 - Package installation error handling
 - Concurrent execution management
+- Resource limit enforcement
+
+### Security
+
+- Added execution timeouts
+- Memory usage limits
+- Concurrent execution limits
+- Temporary file isolation
+- Error message sanitization
 
 ## [0.1.0] - 2024-03-17
 
 ### Added
 
-- Initial release
-- Basic Python code execution
-- Package installation support
+- Initial release with basic functionality
+- Python code execution
+  - Basic script running
+  - Output capture
+  - Error handling
+
+- Package Management
+  - Basic pip package installation
+  - Simple dependency handling
+
+- File Management
+  - Temporary file creation
+  - Basic cleanup
+
+### Security
+
+- Basic script isolation
 - Simple error handling
-- Basic file management
-- Command-line interface
-
-### Features
-
-- Execute Python scripts
-- Install Python packages
-- Capture script output
-- Basic error reporting
-- Temporary file handling
+- File permission management
