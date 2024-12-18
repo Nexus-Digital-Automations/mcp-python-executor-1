@@ -40,11 +40,11 @@ jobs:
           node-version: 18
           cache: npm
 
-      - name: Install dependencies
-        working-directory: src/${{ matrix.package }}
-        run: |
-          ls -la
-          npm ci
+      # - name: Install dependencies
+      #   working-directory: src/${{ matrix.package }}
+      #   run: |
+      #     ls -la
+      #     npm ci
 
       - name: Build package
         working-directory: src/${{ matrix.package }}
