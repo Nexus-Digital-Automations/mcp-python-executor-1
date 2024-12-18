@@ -3,7 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
-  ErrorCode,
+  ErrorCode as McpErrorCode,
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
@@ -13,6 +13,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { loadConfig } from './config.js';
+import { metrics } from './metrics.js';
+import { Logger, ExecutorError, ErrorCode } from './logger.js';
 
 const execAsync = promisify(exec);
 
@@ -48,12 +51,15 @@ const isValidInstallArgs = (args: any): args is InstallPackageArgs => {
 class PythonExecutorServer {
   private server: Server;
   private tempDir: string;
+  private config = loadConfig();
+  private logger: Logger;
+  private activeExecutions = 0;
 
   constructor() {
     this.server = new Server(
       {
         name: 'mcp-python-executor',
-        version: '0.1.0',
+        version: '0.2.0', // Updated version
       },
       {
         capabilities: {
@@ -62,31 +68,44 @@ class PythonExecutorServer {
       }
     );
 
+    this.logger = new Logger(this.config.logging);
+
     // Create temp directory for script files
     this.tempDir = path.join(os.tmpdir(), 'python-executor');
-    fs.mkdir(this.tempDir, { recursive: true }).catch(console.error);
+    fs.mkdir(this.tempDir, { recursive: true }).catch(
+      (err) => this.logger.error('Failed to create temp directory', { error: err.message })
+    );
 
     this.setupToolHandlers();
     this.initializePreinstalledPackages();
 
     // Error handling
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
+    this.server.onerror = (error) => this.logger.error('MCP Error', { error });
     process.on('SIGINT', async () => {
       await this.server.close();
       process.exit(0);
     });
   }
 
+  private async getPythonVersion(): Promise<string> {
+    try {
+      const { stdout } = await execAsync('python --version');
+      return stdout.trim();
+    } catch (error) {
+      this.logger.error('Failed to get Python version', { error });
+      return 'unknown';
+    }
+  }
+
   private async initializePreinstalledPackages() {
-    const preinstalledPackages = process.env.PREINSTALLED_PACKAGES;
-    if (preinstalledPackages) {
+    const packages = Object.keys(this.config.python.packages);
+    if (packages.length > 0) {
       try {
-        const packages = preinstalledPackages.split(' ').filter(Boolean);
-        console.error('Installing pre-configured packages:', packages.join(', '));
+        this.logger.info('Installing pre-configured packages', { packages });
         await this.handleInstallPackages({ packages });
-        console.error('Pre-configured packages installed successfully');
+        this.logger.info('Pre-configured packages installed successfully');
       } catch (error) {
-        console.error('Error installing pre-configured packages:', error);
+        this.logger.error('Error installing pre-configured packages', { error });
       }
     }
   }
@@ -133,6 +152,15 @@ class PythonExecutorServer {
             required: ['packages'],
           },
         },
+        {
+          name: 'health_check',
+          description: 'Check server health status and get metrics',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
       ],
     }));
 
@@ -143,22 +171,55 @@ class PythonExecutorServer {
           return this.handleExecutePython(request.params.arguments);
         case 'install_packages':
           return this.handleInstallPackages(request.params.arguments);
+        case 'health_check':
+          return this.handleHealthCheck();
         default:
           throw new McpError(
-            ErrorCode.MethodNotFound,
+            McpErrorCode.MethodNotFound,
             `Unknown tool: ${request.params.name}`
           );
       }
     });
   }
 
+  private async handleHealthCheck() {
+    const pythonVersion = await this.getPythonVersion();
+    const stats = metrics.getStats();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            status: 'healthy',
+            version: '0.2.0', // Updated version
+            pythonVersion,
+            config: this.config,
+            metrics: stats,
+            activeExecutions: this.activeExecutions,
+          }, null, 2),
+        },
+      ],
+    };
+  }
+
   private async handleExecutePython(args: unknown) {
     if (!isValidExecuteArgs(args)) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
+      throw new ExecutorError(
+        ErrorCode.INVALID_INPUT,
         'Invalid Python execution arguments'
       );
     }
+
+    if (this.activeExecutions >= this.config.execution.maxConcurrent) {
+      throw new ExecutorError(
+        ErrorCode.EXECUTION_TIMEOUT,
+        'Maximum concurrent executions reached'
+      );
+    }
+
+    const startTime = Date.now();
+    this.activeExecutions++;
 
     try {
       // Create temporary script file
@@ -171,33 +232,46 @@ class PythonExecutorServer {
       // Configure Python shell options
       const options: Options = {
         mode: 'text',
-        pythonPath: 'python', // Uses system Python
-        pythonOptions: ['-u'], // Unbuffered output
+        pythonPath: 'python',
+        pythonOptions: ['-u'],
         scriptPath: this.tempDir,
-        args: [],
+        args: args.inputData || [],
       };
 
-      if (args.inputData) {
-        options.args = args.inputData;
-      }
+      // Execute with timeout
+      const results = await Promise.race([
+        new Promise<string[]>((resolve, reject) => {
+          let pyshell = new PythonShell(path.basename(scriptPath), options);
+          const output: string[] = [];
 
-      // Execute the script and capture output
-      const results = await new Promise<string[]>((resolve, reject) => {
-        let pyshell = new PythonShell(path.basename(scriptPath), options);
-        const output: string[] = [];
+          pyshell.on('message', (message) => {
+            output.push(message);
+          });
 
-        pyshell.on('message', (message) => {
-          output.push(message);
-        });
-
-        pyshell.end((err) => {
-          if (err) reject(err);
-          else resolve(output);
-        });
-      });
+          pyshell.end((err) => {
+            if (err) reject(err);
+            else resolve(output);
+          });
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Execution timeout')), this.config.execution.timeoutMs)
+        ),
+      ]);
 
       // Clean up temporary file
-      await fs.unlink(scriptPath).catch(console.error);
+      await fs.unlink(scriptPath).catch(
+        (err) => this.logger.error('Failed to clean up temp file', { error: err.message })
+      );
+
+      const endTime = Date.now();
+      const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+
+      metrics.recordExecution({
+        startTime,
+        endTime,
+        memoryUsageMb: memoryUsage,
+        success: true,
+      });
 
       return {
         content: [
@@ -208,8 +282,20 @@ class PythonExecutorServer {
         ],
       };
     } catch (error: unknown) {
+      const endTime = Date.now();
+      const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+
+      metrics.recordExecution({
+        startTime,
+        endTime,
+        memoryUsageMb: memoryUsage,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Python execution error:', errorMessage);
+      this.logger.error('Python execution error', { error: errorMessage });
+
       return {
         content: [
           {
@@ -219,13 +305,15 @@ class PythonExecutorServer {
         ],
         isError: true,
       };
+    } finally {
+      this.activeExecutions--;
     }
   }
 
   private async handleInstallPackages(args: unknown) {
     if (!isValidInstallArgs(args)) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
+      throw new ExecutorError(
+        ErrorCode.INVALID_INPUT,
         'Invalid package installation arguments'
       );
     }
@@ -233,6 +321,8 @@ class PythonExecutorServer {
     try {
       const packages = args.packages.join(' ');
       const { stdout, stderr } = await execAsync(`pip install ${packages}`);
+
+      this.logger.info('Packages installed successfully', { packages: args.packages });
 
       return {
         content: [
@@ -244,7 +334,8 @@ class PythonExecutorServer {
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Package installation error:', errorMessage);
+      this.logger.error('Package installation error', { error: errorMessage });
+
       return {
         content: [
           {
@@ -260,9 +351,12 @@ class PythonExecutorServer {
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('Python Executor MCP server running on stdio');
+    this.logger.info('Python Executor MCP server running on stdio');
   }
 }
 
 const server = new PythonExecutorServer();
-server.run().catch(console.error);
+server.run().catch((error) => {
+  console.error('Fatal error:', error);
+  process.exit(1);
+});

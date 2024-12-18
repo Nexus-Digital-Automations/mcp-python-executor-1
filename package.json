@@ -1,27 +1,40 @@
 {
   "name": "mcp-python-executor",
-  "version": "0.1.0",
-  "description": "A MCP server for executing python scripts.",
-  "private": true,
+  "version": "0.2.0",
+  "description": "MCP server for executing Python code with advanced monitoring and safety features",
   "type": "module",
-  "bin": {
-    "mcp-python-executor": "./build/index.js"
-  },
-  "files": [
-    "build"
-  ],
+  "main": "build/index.js",
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
-    "prepare": "npm run build",
-    "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "start": "node build/index.js",
+    "dev": "tsc -w",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "mcp",
+    "python",
+    "executor",
+    "code-execution",
+    "monitoring"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0",
+    "@modelcontextprotocol/sdk": "^0.1.0",
     "python-shell": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.24",
-    "typescript": "^5.3.3"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/mcp-python-executor"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/mcp-python-executor/issues"
   }
 }

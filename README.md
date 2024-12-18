@@ -1,189 +1,173 @@
-# MCP Python Executor Server
+# MCP Python Executor
 
-A Model Context Protocol (MCP) server that enables secure Python code execution and package management within the Claude environment. This server allows Claude to execute Python code snippets and manage Python packages dynamically.
+A Model Context Protocol (MCP) server for executing Python code and managing Python packages.
 
 ## Features
 
-### Python Code Execution
-- Execute arbitrary Python code snippets
-- Support for input data streams
-- Secure execution in isolated environment
-- Unbuffered output for real-time feedback
-- Automatic cleanup of temporary script files
+- Execute Python code with safety constraints
+- Install and manage Python packages
+- Pre-configure commonly used packages
+- Resource monitoring and limits
+- Health checks and metrics
+- Structured logging
 
-### Package Management
-- Dynamic Python package installation via pip
-- Support for pre-configured package installation
-- Batch package installation capabilities
-- Error handling and feedback for failed installations
+## Configuration
 
-## Tools
+The server can be configured through environment variables in the MCP settings:
 
-### `execute_python`
-Executes Python code and returns the results.
-
-Parameters:
-- `code` (string, required): Python code to execute
-- `inputData` (string[], optional): Array of input strings for the script
-
-Example:
 ```json
-{
-  "name": "execute_python",
-  "arguments": {
-    "code": "print('Hello, World!')",
-    "inputData": ["optional", "input", "data"]
-  }
-}
-```
-
-### `install_packages`
-Installs Python packages using pip.
-
-Parameters:
-- `packages` (string[], required): Array of package names to install
-
-Example:
-```json
-{
-  "name": "install_packages",
-  "arguments": {
-    "packages": ["numpy", "pandas", "matplotlib"]
-  }
-}
-```
-
-## Environment Setup
-
-### Prerequisites
-- Node.js (v14 or higher)
-- Python (v3.6 or higher)
-- pip package manager
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone [repository-url]
-cd python-executor
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Build the server:
-```bash
-npm run build
-```
-
-### Configuration
-
-#### Pre-installed Packages
-You can configure packages to be installed automatically when the server starts by setting the `PREINSTALLED_PACKAGES` environment variable:
-
-```bash
-export PREINSTALLED_PACKAGES="numpy pandas matplotlib"
-```
-
-#### Claude Desktop Integration
-
-Add the server configuration to your Claude Desktop config file:
-
-Windows:
-```json
-// %APPDATA%/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "mcp-python-executor": {
-      "command": "C:/path/to/python-executor/build/index.js",
+      "command": "node",
+      "args": ["path/to/python-executor/build/index.js"],
       "env": {
-        "PREINSTALLED_PACKAGES": "numpy pandas matplotlib"
+        "PREINSTALLED_PACKAGES": "numpy pandas matplotlib scikit-learn",
+        "MAX_MEMORY_MB": "512",
+        "EXECUTION_TIMEOUT_MS": "30000",
+        "MAX_CONCURRENT_EXECUTIONS": "5",
+        "LOG_LEVEL": "info",
+        "LOG_FORMAT": "json"
       }
     }
   }
 }
 ```
 
-MacOS:
-```json
-// ~/Library/Application Support/Claude/claude_desktop_config.json
+### Environment Variables
+
+- `PREINSTALLED_PACKAGES`: Space-separated list of Python packages to install on startup
+- `MAX_MEMORY_MB`: Maximum memory limit per execution (default: 512)
+- `EXECUTION_TIMEOUT_MS`: Maximum execution time in milliseconds (default: 30000)
+- `MAX_CONCURRENT_EXECUTIONS`: Maximum number of concurrent executions (default: 5)
+- `LOG_LEVEL`: Logging level (debug|info|error, default: info)
+- `LOG_FORMAT`: Log format (json|text, default: json)
+
+## Available Tools
+
+### 1. execute_python
+
+Execute Python code and return the results.
+
+```typescript
+interface ExecutePythonArgs {
+  code: string;          // Python code to execute
+  inputData?: string[];  // Optional input data
+}
+```
+
+Example:
+
+```javascript
 {
-  "mcpServers": {
-    "mcp-python-executor": {
-      "command": "/path/to/python-executor/build/index.js",
-      "env": {
-        "PREINSTALLED_PACKAGES": "numpy pandas matplotlib"
-      }
-    }
+  "code": "print('Hello, World!')\nfor i in range(3): print(i)",
+  "inputData": ["optional", "input", "data"]
+}
+```
+
+### 2. install_packages
+
+Install Python packages using pip.
+
+```typescript
+interface InstallPackageArgs {
+  packages: string[];  // Array of package names to install
+}
+```
+
+Example:
+
+```javascript
+{
+  "packages": ["requests", "beautifulsoup4"]
+}
+```
+
+### 3. health_check
+
+Check server health status and get metrics.
+
+Returns:
+
+```javascript
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "pythonVersion": "Python 3.11.0",
+  "config": {
+    // Current server configuration
+  },
+  "metrics": {
+    "totalExecutions": 100,
+    "totalErrors": 2,
+    "successRate": 98,
+    "averageExecutionTimeMs": 150,
+    "averageMemoryUsageMb": 45,
+    // ...more metrics
   }
 }
 ```
+
+## Safety Features
+
+1. Resource Constraints
+   - Memory usage limits
+   - Execution timeouts
+   - Concurrent execution limits
+
+2. Error Handling
+   - Structured error messages
+   - Error categorization
+   - Detailed error context
+
+3. Monitoring
+   - Execution metrics
+   - Memory usage tracking
+   - Success/failure rates
+   - Performance statistics
 
 ## Development
 
-### Running in Development Mode
-
-For development with auto-rebuild:
-```bash
-npm run watch
-```
-
-### Debugging
-
-Since MCP servers communicate over stdio, debugging can be challenging. Use the built-in MCP Inspector:
+### Building
 
 ```bash
-npm run inspector
+npm install
+npm run build
 ```
 
-The Inspector provides a web interface for:
-- Monitoring server input/output
-- Testing tool execution
-- Inspecting server state
-- Debugging errors
+### Testing
 
-### Error Handling
+```bash
+npm test
+```
 
-The server implements comprehensive error handling:
-- Invalid argument validation
-- Python execution errors
-- Package installation failures
-- Server initialization errors
+## Error Codes
 
-All errors are properly logged and returned with appropriate MCP error codes.
+- `EXECUTION_TIMEOUT`: Script execution exceeded time limit
+- `MEMORY_LIMIT_EXCEEDED`: Script exceeded memory limit
+- `PYTHON_ERROR`: Python runtime or syntax error
+- `INVALID_INPUT`: Invalid tool arguments
+- `PACKAGE_INSTALLATION_ERROR`: Failed to install packages
+- `INTERNAL_ERROR`: Server internal error
 
-## Architecture
+## Logging
 
-The server is built using TypeScript and implements the Model Context Protocol. Key components:
+Logs are structured and can be formatted as JSON or text. Each log entry includes:
 
-- `PythonExecutorServer`: Main server class handling MCP communication
-- `StdioServerTransport`: Manages stdio-based communication
-- Temporary file management for script execution
-- Environment configuration and initialization
-- Tool registration and request handling
+- Timestamp
+- Log level
+- Message
+- Context (optional)
 
-## Security Considerations
+Example JSON log:
 
-- Scripts are executed in isolated temporary files
-- Automatic cleanup of temporary files
-- Input validation for all arguments
-- Package installation restricted to pip
-- Error isolation and proper handling
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-[Specify License]
-
-## Support
-
-For issues and feature requests, please use the GitHub issue tracker.
+```json
+{
+  "level": "info",
+  "message": "Executing Python script",
+  "timestamp": "2024-03-18T12:34:56.789Z",
+  "context": {
+    "scriptSize": 1024,
+    "timeout": 30000
+  }
+}
