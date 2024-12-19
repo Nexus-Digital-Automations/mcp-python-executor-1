@@ -60,7 +60,7 @@ Example:
 
 ```javascript
 {
-  "code": "print('Hello, World!')\nfor i in range(3): print(i)",
+  "code": "print('Hello, World!!')\nfor i in range(3): print(i)",
   "inputData": ["optional", "input", "data"]
 }
 ```
