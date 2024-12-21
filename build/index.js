@@ -33,10 +33,6 @@ class PythonExecutorServer {
         this.server = new Server({
             name: 'mcp-python-executor',
             version: '0.2.0', // Updated version
-        }, {
-            capabilities: {
-                tools: {},
-            },
         });
         this.logger = new Logger(this.config.logging);
         // Create temp directory for script files

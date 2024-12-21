@@ -61,11 +61,6 @@ class PythonExecutorServer {
       {
         name: 'mcp-python-executor',
         version: '0.2.0', // Updated version
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
       }
     );
 

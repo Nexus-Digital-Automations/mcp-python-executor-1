@@ -1,6 +1,6 @@
 {
   "name": "mcp-python-executor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for executing Python code with advanced monitoring and safety features",
   "type": "module",
   "main": "build/index.js",
@@ -20,8 +20,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.1.0",
-    "python-shell": "^5.0.0"
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "python-shell": "^5.0.0",
+    "upgrade": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -32,9 +33,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/mcp-python-executor"
+    "url": "https://github.com/bsmi021/python-executor"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/mcp-python-executor/issues"
+    "url": "https://github.com/bsmi021/python-executor"
   }
 }
