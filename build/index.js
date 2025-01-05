@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ErrorCode as McpErrorCode, ListToolsRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ErrorCode as McpErrorCode, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
 import { PythonShell } from 'python-shell';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -30,11 +30,68 @@ class PythonExecutorServer {
     constructor() {
         this.config = loadConfig();
         this.activeExecutions = 0;
+        // Define available prompts with type safety
+        this.PROMPTS = {
+            'execute-python': {
+                name: 'execute-python',
+                description: 'Execute Python code with best practices and error handling',
+                arguments: [
+                    {
+                        name: 'task',
+                        description: 'Description of what the code should do',
+                        required: true
+                    },
+                    {
+                        name: 'requirements',
+                        description: 'Any specific requirements or constraints',
+                        required: false
+                    }
+                ]
+            },
+            'debug-python': {
+                name: 'debug-python',
+                description: 'Debug Python code execution issues',
+                arguments: [
+                    {
+                        name: 'code',
+                        description: 'Code that produced the error',
+                        required: true
+                    },
+                    {
+                        name: 'error',
+                        description: 'Error message received',
+                        required: true
+                    }
+                ]
+            },
+            'install-packages': {
+                name: 'install-packages',
+                description: 'Guide for safely installing Python packages',
+                arguments: [
+                    {
+                        name: 'packages',
+                        description: 'List of packages to install',
+                        required: true
+                    },
+                    {
+                        name: 'purpose',
+                        description: 'What the packages will be used for',
+                        required: false
+                    }
+                ]
+            }
+        };
         this.server = new Server({
             name: 'mcp-python-executor',
-            version: '0.2.0', // Updated version
+            version: '0.2.0',
+            capabilities: {
+                prompts: {}
+            }
         });
+        this.venvDir = this.config.python.venvPath;
+        this.cleanupInterval = setInterval(() => this.cleanupTempFiles(), this.config.temp.cleanupIntervalMs);
         this.logger = new Logger(this.config.logging);
+        this.setupPromptHandlers();
         // Create temp directory for script files
         this.tempDir = path.join(os.tmpdir(), 'python-executor');
         fs.mkdir(this.tempDir, { recursive: true }).catch((err) => this.logger.error('Failed to create temp directory', { error: err.message }));
@@ -69,6 +126,78 @@ class PythonExecutorServer {
                 this.logger.error('Error installing pre-configured packages', { error });
             }
         }
+    }
+    setupPromptHandlers() {
+        // List available prompts
+        this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+            prompts: Object.values(this.PROMPTS)
+        }));
+        // Get specific prompt
+        this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+            const prompt = this.PROMPTS[request.params.name];
+            if (!prompt) {
+                throw new McpError(McpErrorCode.InvalidRequest, `Prompt not found: ${request.params.name}`);
+            }
+            if (request.params.name === 'execute-python') {
+                const task = request.params.arguments?.task || '';
+                const requirements = request.params.arguments?.requirements || '';
+                return {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `Task: ${task}\nRequirements: ${requirements}\n\nPlease help me write Python code that:`
+                                    + '\n1. Is efficient and follows PEP 8 style guidelines'
+                                    + '\n2. Includes proper error handling'
+                                    + '\n3. Has clear comments explaining the logic'
+                                    + '\n4. Uses appropriate Python features and standard library modules'
+                            }
+                        }
+                    ]
+                };
+            }
+            if (request.params.name === 'debug-python') {
+                const code = request.params.arguments?.code || '';
+                const error = request.params.arguments?.error || '';
+                return {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `Let's debug this Python code:\n\n${code}\n\nError:\n${error}\n\nLet's analyze:`
+                                    + '\n1. The specific error message and line number'
+                                    + '\n2. Common causes for this type of error'
+                                    + '\n3. Potential fixes and improvements'
+                                    + '\n4. Best practices to prevent similar issues'
+                            }
+                        }
+                    ]
+                };
+            }
+            if (request.params.name === 'install-packages') {
+                const packages = request.params.arguments?.packages || '';
+                const purpose = request.params.arguments?.purpose || '';
+                return {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `Installing packages: ${packages}\nPurpose: ${purpose}\n\nLet's ensure safe installation:`
+                                    + '\n1. Verify package names and versions'
+                                    + '\n2. Check for potential conflicts'
+                                    + '\n3. Consider security implications'
+                                    + '\n4. Recommend virtual environment usage if appropriate'
+                                    + '\n5. Suggest alternative packages if relevant'
+                            }
+                        }
+                    ]
+                };
+            }
+            throw new McpError(McpErrorCode.InvalidRequest, 'Prompt implementation not found');
+        });
     }
     setupToolHandlers() {
         // List available tools
@@ -146,7 +275,7 @@ class PythonExecutorServer {
                     type: 'text',
                     text: JSON.stringify({
                         status: 'healthy',
-                        version: '0.2.0', // Updated version
+                        version: '0.2.0',
                         pythonVersion,
                         config: this.config,
                         metrics: stats,
@@ -239,13 +368,69 @@ class PythonExecutorServer {
             this.activeExecutions--;
         }
     }
+    async cleanupTempFiles() {
+        try {
+            const now = Date.now();
+            const files = await fs.readdir(this.tempDir);
+            for (const file of files) {
+                const filePath = path.join(this.tempDir, file);
+                const stats = await fs.stat(filePath);
+                const age = now - stats.mtimeMs;
+                if (age > this.config.temp.maxAgeMs) {
+                    await fs.unlink(filePath).catch(err => this.logger.error('Failed to delete temp file', { file, error: err.message }));
+                }
+            }
+        }
+        catch (error) {
+            this.logger.error('Error during temp file cleanup', { error });
+        }
+    }
+    async verifyPythonVersion() {
+        const { stdout } = await execAsync('python --version');
+        const versionMatch = stdout.match(/Python (\d+\.\d+\.\d+)/);
+        if (!versionMatch) {
+            throw new Error('Could not determine Python version');
+        }
+        const installedVersion = versionMatch[1];
+        if (installedVersion < this.config.python.minVersion) {
+            throw new Error(`Python version ${installedVersion} is below required minimum ${this.config.python.minVersion}`);
+        }
+    }
+    async setupVirtualEnvironment() {
+        if (!this.config.python.useVirtualEnv)
+            return;
+        try {
+            // Check if virtual environment already exists
+            const venvExists = await fs.access(this.venvDir)
+                .then(() => true)
+                .catch(() => false);
+            if (!venvExists) {
+                await execAsync(`python -m venv ${this.venvDir}`);
+                this.logger.info('Created virtual environment', { path: this.venvDir });
+            }
+        }
+        catch (error) {
+            this.logger.error('Failed to setup virtual environment', { error });
+            throw error;
+        }
+    }
     async handleInstallPackages(args) {
         if (!isValidInstallArgs(args)) {
             throw new ExecutorError(ErrorCode.INVALID_INPUT, 'Invalid package installation arguments');
         }
         try {
+            // Verify Python version
+            await this.verifyPythonVersion();
+            // Setup virtual environment if enabled
+            await this.setupVirtualEnvironment();
+            // Install packages with appropriate pip command
             const packages = args.packages.join(' ');
-            const { stdout, stderr } = await execAsync(`pip install ${packages}`);
+            const pipCommand = this.config.python.useVirtualEnv
+                ? `${path.join(this.venvDir, 'bin', 'pip')} install ${packages}`
+                : `pip install ${packages}`;
+            const { stdout, stderr } = await execAsync(pipCommand, {
+                timeout: this.config.execution.packageTimeoutMs
+            });
             this.logger.info('Packages installed successfully', { packages: args.packages });
             return {
                 content: [

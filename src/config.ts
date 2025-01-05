@@ -1,37 +1,58 @@
+import * as path from 'path';
+import * as os from 'os';
+
 export interface ServerConfig {
     python: {
         version: string;
+        minVersion: string;
         packages: Record<string, string>;
+        useVirtualEnv: boolean;
+        venvPath: string;
     };
     execution: {
         maxMemoryMb: number;
         timeoutMs: number;
+        packageTimeoutMs: number;
         maxConcurrent: number;
     };
     logging: {
         level: 'debug' | 'info' | 'error';
         format: 'json' | 'text';
     };
+    temp: {
+        directory: string;
+        cleanupIntervalMs: number;
+        maxAgeMs: number;
+    };
 }
 
 export const defaultConfig: ServerConfig = {
     python: {
         version: '3.x',
+        minVersion: '3.9.0',
         packages: {
             'numpy': '*',
             'pandas': '*',
             'matplotlib': '*',
             'scikit-learn': '*'
-        }
+        },
+        useVirtualEnv: true,
+        venvPath: path.join(os.homedir(), '.mcp-python-venv')
     },
     execution: {
         maxMemoryMb: 512,
-        timeoutMs: 30000,
+        timeoutMs: 300000, // 5 minutes
+        packageTimeoutMs: 600000, // 10 minutes
         maxConcurrent: 5
     },
     logging: {
         level: 'info',
         format: 'json'
+    },
+    temp: {
+        directory: path.join(os.homedir(), '.mcp-python-temp'),
+        cleanupIntervalMs: 3600000, // 1 hour
+        maxAgeMs: 86400000 // 24 hours
     }
 };
 
