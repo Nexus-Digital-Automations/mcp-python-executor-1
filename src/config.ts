@@ -8,12 +8,20 @@ export interface ServerConfig {
         packages: Record<string, string>;
         useVirtualEnv: boolean;
         venvPath: string;
+        analysis: {
+            enableSecurity: boolean;
+            enableStyle: boolean;
+            enableComplexity: boolean;
+            maxComplexity: number;
+        };
     };
     execution: {
         maxMemoryMb: number;
         timeoutMs: number;
         packageTimeoutMs: number;
         maxConcurrent: number;
+        enableProfiling: boolean;
+        saveHistory: boolean;
     };
     logging: {
         level: 'debug' | 'info' | 'error';
@@ -24,12 +32,17 @@ export interface ServerConfig {
         cleanupIntervalMs: number;
         maxAgeMs: number;
     };
-}
+    database: {
+        path: string;
+        maxHistoryItems: number;
+    };
+};
+
 
 export const defaultConfig: ServerConfig = {
     python: {
         version: '3.x',
-        minVersion: '3.9.0',
+        minVersion: '3.0.0',
         packages: {
             'numpy': '*',
             'pandas': '*',
@@ -37,13 +50,21 @@ export const defaultConfig: ServerConfig = {
             'scikit-learn': '*'
         },
         useVirtualEnv: true,
-        venvPath: path.join(os.homedir(), '.mcp-python-venv')
+        venvPath: path.join(os.homedir(), '.mcp-python-venv'),
+        analysis: {
+            enableSecurity: false,
+            enableStyle: false,
+            enableComplexity: false,
+            maxComplexity: 10
+        }
     },
     execution: {
         maxMemoryMb: 512,
         timeoutMs: 300000, // 5 minutes
         packageTimeoutMs: 600000, // 10 minutes
-        maxConcurrent: 5
+        maxConcurrent: 5,
+        enableProfiling: false,
+        saveHistory: false
     },
     logging: {
         level: 'info',
@@ -53,6 +74,10 @@ export const defaultConfig: ServerConfig = {
         directory: path.join(os.homedir(), '.mcp-python-temp'),
         cleanupIntervalMs: 3600000, // 1 hour
         maxAgeMs: 86400000 // 24 hours
+    },
+    database: {
+        path: path.join(os.homedir(), '.mcp-python-database'),
+        maxHistoryItems: 100
     }
 };
 
@@ -93,4 +118,56 @@ export function loadConfig(): ServerConfig {
     }
 
     return config;
+}
+
+// Add new file: src/dependencies.ts
+export interface DependencyGraph {
+    name: string;
+    version: string;
+    dependencies: DependencyGraph[];
+}
+
+export class DependencyResolver {
+    private cache: Map<string, DependencyGraph> = new Map();
+
+    async resolveDependencies(packages: string[]): Promise<DependencyGraph[]> {
+        const graphs: DependencyGraph[] = [];
+
+        for (const pkg of packages) {
+            if (!this.cache.has(pkg)) {
+                const deps = await this.getPipDependencies(pkg);
+                this.cache.set(pkg, deps);
+            }
+            graphs.push(this.cache.get(pkg)!);
+        }
+
+        return this.optimizeDependencies(graphs);
+    }
+
+    private async getPipDependencies(pkg: string): Promise<DependencyGraph> {
+        // Use pip show to get package info
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        try {
+            const { stdout } = await execAsync(`pip show ${pkg}`);
+            // Parse pip output and build dependency tree
+            return this.parsePipOutput(stdout);
+        } catch (error) {
+            throw new Error(`Failed to resolve dependencies for ${pkg}`);
+        }
+    }
+
+    private parsePipOutput(output: string): DependencyGraph {
+        // Parse pip show output and return dependency graph
+        // Implementation details...
+        return {} as DependencyGraph;
+    }
+
+    private optimizeDependencies(graphs: DependencyGraph[]): DependencyGraph[] {
+        // Optimize by removing duplicate dependencies
+        // Implementation details...
+        return graphs;
+    }
 }

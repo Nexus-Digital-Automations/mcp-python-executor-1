@@ -477,17 +477,61 @@ class PythonExecutorServer {
     }
   }
 
+  private compareVersions(v1: string, v2: string): number {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+
+    this.logger.info('Comparing versions', {
+      v1,
+      v2,
+      parts1,
+      parts2
+    });
+
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const part1 = parts1[i] || 0;
+      const part2 = parts2[i] || 0;
+
+      this.logger.info('Comparing parts', {
+        index: i,
+        part1,
+        part2
+      });
+
+      if (part1 !== part2) {
+        const result = part1 - part2;
+        this.logger.info('Version comparison result', { result });
+        return result;
+      }
+    }
+    return 0;
+  }
+
   private async verifyPythonVersion(): Promise<void> {
     const { stdout } = await execAsync('python --version');
+    this.logger.info('Python version output', { stdout });
+
     const versionMatch = stdout.match(/Python (\d+\.\d+\.\d+)/);
     if (!versionMatch) {
       throw new Error('Could not determine Python version');
     }
 
     const installedVersion = versionMatch[1];
-    if (installedVersion < this.config.python.minVersion) {
-      throw new Error(`Python version ${installedVersion} is below required minimum ${this.config.python.minVersion}`);
+    const minVersion = this.config.python.minVersion;
+
+    this.logger.info('Version check', {
+      installedVersion,
+      minVersion,
+      config: this.config.python
+    });
+
+    const comparison = this.compareVersions(installedVersion, minVersion);
+    this.logger.info('Version comparison', { comparison });
+
+    if (comparison < 0) {
+      throw new Error(`Python version ${installedVersion} is below required minimum ${minVersion}`);
     }
+    this.logger.info('Python version verified', { installed: installedVersion, minimum: minVersion });
   }
 
   private async setupVirtualEnvironment(): Promise<void> {
@@ -527,7 +571,7 @@ class PythonExecutorServer {
       // Install packages with appropriate pip command
       const packages = args.packages.join(' ');
       const pipCommand = this.config.python.useVirtualEnv
-        ? `${path.join(this.venvDir, 'bin', 'pip')} install ${packages}`
+        ? `${path.join(this.venvDir, process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'pip.exe' : 'pip')} install ${packages}`
         : `pip install ${packages}`;
 
       const { stdout, stderr } = await execAsync(pipCommand, {
