@@ -262,20 +262,56 @@ class PythonExecutorServer {
       tools: [
         {
           name: 'execute_python',
-          description: 'Execute Python code and return the results',
+          description: `Execute Python code in a secure, isolated environment with configurable resource limits.
+
+Features:
+- Automatic virtual environment management
+- Resource monitoring (memory, CPU)
+- Input/output stream handling
+- Error handling and timeout protection
+
+Example workflow:
+1. First install required packages using install_packages
+2. Write your Python code with proper error handling
+3. Optionally prepare input data as string array
+4. Call execute_python with your code
+5. Check the response for output or errors
+6. For long-running scripts, monitor health_check
+
+Example usage:
+{
+  "code": "import numpy as np\\ntry:\\n    data = np.random.rand(3,3)\\n    print(data)\\nexcept Exception as e:\\n    print(f'Error: {e}')",
+  "inputData": ["optional", "input", "strings"]
+}
+
+Common workflows:
+1. Data processing:
+   - Install numpy and pandas
+   - Load and process data
+   - Output results
+
+2. Machine learning:
+   - Install scikit-learn
+   - Train model
+   - Make predictions
+
+3. Web scraping:
+   - Install requests and beautifulsoup4
+   - Fetch and parse content
+   - Extract data`,
           inputSchema: {
             type: 'object',
             properties: {
               code: {
                 type: 'string',
-                description: 'Python code to execute',
+                description: 'Python code to execute. Can include multiple lines and import statements.',
               },
               inputData: {
                 type: 'array',
                 items: {
                   type: 'string',
                 },
-                description: 'Optional array of input strings for the script',
+                description: 'Optional array of input strings that will be available to the script via stdin',
               },
             },
             required: ['code'],
@@ -283,7 +319,42 @@ class PythonExecutorServer {
         },
         {
           name: 'install_packages',
-          description: 'Install Python packages using pip',
+          description: `Install Python packages using uv (faster alternative to pip) with dependency resolution.
+
+Features:
+- Automatic virtual environment detection
+- Version compatibility checking
+- Dependency conflict resolution
+- Security vulnerability scanning
+- Installation status monitoring
+
+Example workflow:
+1. Check health_check to verify Python environment
+2. Prepare list of required packages with versions
+3. Call install_packages with package list
+4. Verify installation in health_check
+5. Use packages in execute_python
+
+Example usage:
+{
+  "packages": ["numpy>=1.20.0", "pandas", "matplotlib"]
+}
+
+Common workflows:
+1. New project setup:
+   - Install base requirements
+   - Verify versions
+   - Test imports
+
+2. Adding dependencies:
+   - Check existing packages
+   - Install new packages
+   - Resolve conflicts
+
+3. Environment replication:
+   - Export requirements
+   - Install on new system
+   - Verify setup`,
           inputSchema: {
             type: 'object',
             properties: {
@@ -292,7 +363,7 @@ class PythonExecutorServer {
                 items: {
                   type: 'string',
                 },
-                description: 'Array of package names to install',
+                description: 'Array of package specifications. Can include version constraints (e.g. "numpy>=1.20.0")',
               },
             },
             required: ['packages'],
@@ -300,11 +371,107 @@ class PythonExecutorServer {
         },
         {
           name: 'health_check',
-          description: 'Check server health status and get metrics',
+          description: `Get detailed server health metrics and configuration status.
+
+Returns:
+- Python environment details
+- Resource usage statistics
+- Active executions count
+- Configuration settings
+- Package installation status
+
+Example workflow:
+1. Call health_check before starting work
+2. Monitor during long-running operations
+3. Verify after environment changes
+4. Check when errors occur
+
+Example usage:
+{}  // No parameters required
+
+Common workflows:
+1. Initial setup verification:
+   - Check Python version
+   - Verify environment
+   - List installed packages
+
+2. Performance monitoring:
+   - Track memory usage
+   - Monitor CPU load
+   - Check active executions
+
+3. Troubleshooting:
+   - Get error details
+   - Check resource limits
+   - Verify configurations`,
           inputSchema: {
             type: 'object',
             properties: {},
             required: [],
+          },
+        },
+        {
+          name: 'analyze_code',
+          description: `Analyze Python code for security, style, and complexity issues.
+
+Features:
+- Security vulnerability detection
+- PEP 8 style checking
+- Cyclomatic complexity analysis
+- Import validation
+- Resource usage estimation
+
+Example workflow:
+1. Write or paste your Python code
+2. Enable desired analysis types
+3. Call analyze_code
+4. Review and fix issues
+5. Repeat until clean
+
+Example usage:
+{
+  "code": "def process_data(data):\\n    try:\\n        return data.process()\\n    except:\\n        pass",
+  "enableSecurity": true,
+  "enableStyle": true,
+  "enableComplexity": true
+}
+
+Common workflows:
+1. Security audit:
+   - Enable security scanning
+   - Check for vulnerabilities
+   - Fix security issues
+
+2. Code review:
+   - Run full analysis
+   - Review all issues
+   - Make improvements
+
+3. Continuous improvement:
+   - Regular style checks
+   - Complexity monitoring
+   - Security scanning`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              code: {
+                type: 'string',
+                description: 'Python code to analyze',
+              },
+              enableSecurity: {
+                type: 'boolean',
+                description: 'Enable security vulnerability scanning',
+              },
+              enableStyle: {
+                type: 'boolean',
+                description: 'Enable PEP 8 style checking',
+              },
+              enableComplexity: {
+                type: 'boolean',
+                description: 'Enable complexity analysis',
+              },
+            },
+            required: ['code'],
           },
         },
       ],
@@ -319,6 +486,8 @@ class PythonExecutorServer {
           return this.handleInstallPackages(request.params.arguments);
         case 'health_check':
           return this.handleHealthCheck();
+        case 'analyze_code':
+          return this.handleAnalyzeCode(request.params.arguments);
         default:
           throw new McpError(
             McpErrorCode.MethodNotFound,
@@ -568,17 +737,29 @@ class PythonExecutorServer {
       // Setup virtual environment if enabled
       await this.setupVirtualEnvironment();
 
-      // Install packages with appropriate pip command
-      const packages = args.packages.join(' ');
-      const pipCommand = this.config.python.useVirtualEnv
-        ? `${path.join(this.venvDir, process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'pip.exe' : 'pip')} install ${packages}`
-        : `pip install ${packages}`;
+      // Install UV if not already installed
+      try {
+        await execAsync('uv --version');
+      } catch {
+        this.logger.info('Installing UV package installer');
+        await execAsync('curl -LsSf https://astral.sh/uv/install.sh | sh');
+      }
 
-      const { stdout, stderr } = await execAsync(pipCommand, {
-        timeout: this.config.execution.packageTimeoutMs
+      // Install packages with UV
+      const packages = args.packages.join(' ');
+      const uvCommand = this.config.python.useVirtualEnv
+        ? `uv pip install --venv ${this.venvDir} ${packages}`
+        : `uv pip install ${packages}`;
+
+      const { stdout, stderr } = await execAsync(uvCommand, {
+        timeout: this.config.execution.packageTimeoutMs,
+        env: {
+          ...process.env,
+          UV_SYSTEM_PYTHON: 'python', // Use system Python for UV
+        }
       });
 
-      this.logger.info('Packages installed successfully', { packages: args.packages });
+      this.logger.info('Packages installed successfully with UV', { packages: args.packages });
 
       return {
         content: [
@@ -597,6 +778,73 @@ class PythonExecutorServer {
           {
             type: 'text',
             text: `Error installing packages: ${errorMessage}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleAnalyzeCode(args: any) {
+    if (!args?.code || typeof args.code !== 'string') {
+      throw new ExecutorError(ErrorCode.INVALID_INPUT, 'Invalid code analysis arguments');
+    }
+
+    try {
+      const results: any = {
+        security: null,
+        style: null,
+        complexity: null,
+      };
+
+      // Create temporary file for analysis
+      const scriptPath = path.join(this.tempDir, `analysis_${Date.now()}.py`);
+      await fs.writeFile(scriptPath, args.code);
+
+      try {
+        // Security analysis with bandit if enabled
+        if (this.config.python.analysis.enableSecurity && args.enableSecurity !== false) {
+          const { stdout: securityOutput } = await execAsync(`bandit ${scriptPath} -f json`);
+          results.security = JSON.parse(securityOutput);
+        }
+
+        // Style analysis with pylint if enabled
+        if (this.config.python.analysis.enableStyle && args.enableStyle !== false) {
+          const { stdout: styleOutput } = await execAsync(`pylint ${scriptPath} --output-format=json`);
+          results.style = JSON.parse(styleOutput);
+        }
+
+        // Complexity analysis with radon if enabled
+        if (this.config.python.analysis.enableComplexity && args.enableComplexity !== false) {
+          const { stdout: complexityOutput } = await execAsync(
+            `radon cc ${scriptPath} -j --min ${this.config.python.analysis.maxComplexity}`
+          );
+          results.complexity = JSON.parse(complexityOutput);
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(results, null, 2),
+            },
+          ],
+        };
+      } finally {
+        // Clean up temporary file
+        await fs.unlink(scriptPath).catch(
+          err => this.logger.error('Failed to clean up analysis file', { error: err.message })
+        );
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Code analysis error', { error: errorMessage });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error analyzing code: ${errorMessage}`,
           },
         ],
         isError: true,
