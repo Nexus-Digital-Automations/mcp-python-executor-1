@@ -83,9 +83,11 @@ class PythonExecutorServer {
         };
         this.server = new Server({
             name: 'mcp-python-executor',
-            version: '0.2.0',
+            version: '0.2.0'
+        }, {
             capabilities: {
-                prompts: {}
+                prompts: {},
+                tools: {}
             }
         });
         this.venvDir = this.config.python.venvPath;

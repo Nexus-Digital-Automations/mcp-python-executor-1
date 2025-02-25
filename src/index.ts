@@ -124,11 +124,14 @@ class PythonExecutorServer {
   constructor() {
     this.server = new Server({
       name: 'mcp-python-executor',
-      version: '0.2.0',
-      capabilities: {
-        prompts: {}
-      }
-    });
+      version: '0.2.0'
+    },
+      {
+        capabilities: {
+          prompts: {},
+          tools: {}
+        }
+      });
     this.venvDir = this.config.python.venvPath;
     this.cleanupInterval = setInterval(
       () => this.cleanupTempFiles(),
