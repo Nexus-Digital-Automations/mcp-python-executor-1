@@ -51,123 +51,38 @@ Execute Python code and return the results.
 
 ```typescript
 interface ExecutePythonArgs {
-  code: string;          // Python code to execute
-  inputData?: string[];  // Optional input data
+  code?: string;          // Python code to execute (inline)
+  scriptPath?: string;    // Path to existing Python script file (alternative to code)
+  inputData?: string[];   // Optional input data
 }
 ```
 
-Example:
+Examples:
 
 ```javascript
+// Example with inline code
 {
   "code": "print('Hello, World!!')\nfor i in range(3): print(i)",
+  "inputData": ["optional", "input", "data"]
+}
+
+// Example with script path
+{
+  "scriptPath": "/path/to/your_script.py",
   "inputData": ["optional", "input", "data"]
 }
 ```
 
 ### 2. install_packages
 
-Install Python packages using pip.
+Install Python packages.
 
 ```typescript
-interface InstallPackageArgs {
-  packages: string[];  // Array of package names to install
+interface InstallPackagesArgs {
+  packages: string[];
 }
 ```
 
 Example:
 
-```javascript
-{
-  "packages": ["requests", "beautifulsoup4"]
-}
 ```
-
-### 3. health_check
-
-Check server health status and get metrics.
-
-Returns:
-
-```javascript
-{
-  "status": "healthy",
-  "version": "0.1.0",
-  "pythonVersion": "Python 3.11.0",
-  "config": {
-    // Current server configuration
-  },
-  "metrics": {
-    "totalExecutions": 100,
-    "totalErrors": 2,
-    "successRate": 98,
-    "averageExecutionTimeMs": 150,
-    "averageMemoryUsageMb": 45,
-    // ...more metrics
-  }
-}
-```
-
-## Safety Features
-
-1. Resource Constraints
-   - Memory usage limits
-   - Execution timeouts
-   - Concurrent execution limits
-
-2. Error Handling
-   - Structured error messages
-   - Error categorization
-   - Detailed error context
-
-3. Monitoring
-   - Execution metrics
-   - Memory usage tracking
-   - Success/failure rates
-   - Performance statistics
-
-## Development
-
-### Building
-
-```bash
-npm install
-npm run build
-```
-
-### Testing
-
-```bash
-npm test
-```
-
-## Error Codes
-
-- `EXECUTION_TIMEOUT`: Script execution exceeded time limit
-- `MEMORY_LIMIT_EXCEEDED`: Script exceeded memory limit
-- `PYTHON_ERROR`: Python runtime or syntax error
-- `INVALID_INPUT`: Invalid tool arguments
-- `PACKAGE_INSTALLATION_ERROR`: Failed to install packages
-- `INTERNAL_ERROR`: Server internal error
-
-## Logging
-
-Logs are structured and can be formatted as JSON or text. Each log entry includes:
-
-- Timestamp
-- Log level
-- Message
-- Context (optional)
-
-Example JSON log:
-
-```json
-{
-  "level": "info",
-  "message": "Executing Python script",
-  "timestamp": "2024-03-18T12:34:56.789Z",
-  "context": {
-    "scriptSize": 1024,
-    "timeout": 30000
-  }
-}
