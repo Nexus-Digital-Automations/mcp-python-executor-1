@@ -1,6 +1,10 @@
 export class Logger {
     constructor(config) {
         this.config = config;
+        if (this.shouldLog('info')) {
+            const entry = this.createLogEntry('info', 'Logger instance created with config', config);
+            process.stderr.write(this.formatLog(entry) + '\n');
+        }
     }
     formatLog(entry) {
         if (this.config.format === 'json') {
@@ -31,25 +35,25 @@ export class Logger {
     debug(message, context) {
         if (this.shouldLog('debug')) {
             const entry = this.createLogEntry('debug', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
     info(message, context) {
         if (this.shouldLog('info')) {
             const entry = this.createLogEntry('info', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
     warn(message, context) {
         if (this.shouldLog('warn')) {
             const entry = this.createLogEntry('warn', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
     error(message, context) {
         if (this.shouldLog('error')) {
             const entry = this.createLogEntry('error', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
     setLogLevel(level) {

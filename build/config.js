@@ -1,5 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 ;
 export const defaultConfig = {
     python: {
@@ -29,7 +31,7 @@ export const defaultConfig = {
         saveHistory: false
     },
     logging: {
-        level: 'info',
+        level: 'debug',
         format: 'json'
     },
     temp: {
@@ -92,8 +94,6 @@ export class DependencyResolver {
     }
     async getPipDependencies(pkg) {
         // Use pip show to get package info
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
         const execAsync = promisify(exec);
         try {
             const { stdout } = await execAsync(`pip show ${pkg}`);

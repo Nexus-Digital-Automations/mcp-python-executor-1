@@ -5,7 +5,7 @@
   "type": "module",
   "main": "build/index.js",
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node --input-type=module -e \"import { chmodSync } from 'fs'; chmodSync('build/index.js', '755');\"",
     "start": "node build/index.js",
     "dev": "tsc -w",
     "test": "jest",

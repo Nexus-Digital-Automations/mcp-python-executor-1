@@ -1,5 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
 export interface ServerConfig {
     python: {
@@ -67,7 +69,7 @@ export const defaultConfig: ServerConfig = {
         saveHistory: false
     },
     logging: {
-        level: 'info',
+        level: 'debug',
         format: 'json'
     },
     temp: {
@@ -150,8 +152,6 @@ export class DependencyResolver {
 
     private async getPipDependencies(pkg: string): Promise<DependencyGraph> {
         // Use pip show to get package info
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
         const execAsync = promisify(exec);
 
         try {

@@ -12,7 +12,10 @@ export class Logger {
 
     constructor(config: ServerConfig['logging']) {
         this.config = config;
-        console.log("DIRECT_LOGGER: Logger instance created with config:", JSON.stringify(config));
+        if (this.shouldLog('info')) {
+            const entry = this.createLogEntry('info', 'Logger instance created with config', config);
+            process.stderr.write(this.formatLog(entry) + '\n');
+        }
     }
 
     private formatLog(entry: LogEntry): string {
@@ -48,34 +51,30 @@ export class Logger {
     }
 
     debug(message: string, context?: Record<string, unknown>) {
-        console.log(`DIRECT_DEBUG: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('debug')) {
             const entry = this.createLogEntry('debug', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
 
     info(message: string, context?: Record<string, unknown>) {
-        console.log(`DIRECT_INFO: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('info')) {
             const entry = this.createLogEntry('info', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
 
     warn(message: string, context?: Record<string, unknown>) {
-        console.log(`DIRECT_WARN: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('warn')) {
             const entry = this.createLogEntry('warn', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
 
     error(message: string, context?: Record<string, unknown>) {
-        console.log(`DIRECT_ERROR: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('error')) {
             const entry = this.createLogEntry('error', message, context);
-            console.error(this.formatLog(entry));
+            process.stderr.write(this.formatLog(entry) + '\n');
         }
     }
 

@@ -20,14 +20,14 @@ import { metrics } from './metrics.js';
 import { Logger, ExecutorError, ErrorCode } from './logger.js';
 
 // Add direct console logging at the very beginning
-console.log("STARTUP: Beginning process initialization");
+console.error("STARTUP: Beginning process initialization");
 process.on('uncaughtException', (err) => {
-  console.log(`CRITICAL UNCAUGHT EXCEPTION: ${err.message}`);
-  console.log(err.stack);
+  console.error(`CRITICAL UNCAUGHT EXCEPTION: ${err.message}`);
+  console.error(err.stack);
   process.exit(1);
 });
 process.on('unhandledRejection', (reason, promise) => {
-  console.log('CRITICAL UNHANDLED REJECTION:', reason);
+  console.error(`CRITICAL UNHANDLED REJECTION: ${reason}`);
   process.exit(1);
 });
 
@@ -78,10 +78,9 @@ class PythonExecutorServer {
   private server: Server;
   private tempDir: string;
   private config = loadConfig();
-  private logger: Logger;
+  public logger: Logger;
   private activeExecutions = 0;
   private cleanupInterval: NodeJS.Timeout;
-  private venvLockPromise: Promise<void> | null = null;
 
   // Define available prompts with type safety
   private PROMPTS: Record<string, Prompt> = {
@@ -136,7 +135,7 @@ class PythonExecutorServer {
   };
 
   constructor() {
-    console.log("STARTUP: Beginning server construction");
+    console.error("STARTUP: Beginning server construction");
     
     try {
       this.server = new Server({
@@ -147,40 +146,44 @@ class PythonExecutorServer {
           tools: {}
         }
       });
-      console.log("STARTUP: Created server instance");
+      console.error("STARTUP: Created server instance");
+
+      // NOTE: Virtual environment locking mechanism was removed to prevent potential hangs
+      // If concurrent venv operations cause issues, implement a more robust non-blocking solution
 
       this.cleanupInterval = setInterval(
         () => this.cleanupTempFiles(),
         this.config.temp.cleanupIntervalMs
       );
-      console.log("STARTUP: Set up cleanup interval");
+      console.error("STARTUP: Set up cleanup interval");
 
       this.logger = new Logger(this.config.logging);
-      console.log("STARTUP: Created logger");
+      console.error("STARTUP: Created logger");
 
+      // Now that logger is initialized, we can use it for the remaining logs
+      
       // Create temp directory for script files
       this.tempDir = path.join(os.tmpdir(), 'python-executor');
-      console.log(`STARTUP: Setting temp directory to ${this.tempDir}`);
+      this.logger.info(`Setting temp directory to ${this.tempDir}`);
       fs.mkdir(this.tempDir, { recursive: true }).catch(
-        (err) => console.log(`STARTUP ERROR: Failed to create temp directory: ${err.message}`)
+        (err) => this.logger.error(`Failed to create temp directory: ${err.message}`)
       );
 
-      // Enable code analysis features - COMMENT THESE OUT FOR TESTING
-      // this.config.python.analysis.enableSecurity = true;
-      // this.config.python.analysis.enableStyle = true;
-      // this.config.python.analysis.enableComplexity = true;
+      // Enable code analysis features
+      this.config.python.analysis.enableSecurity = true;
+      this.config.python.analysis.enableStyle = true;
+      this.config.python.analysis.enableComplexity = true;
 
-      console.log("STARTUP: Setting up handlers");
+      this.logger.info("Setting up handlers");
       this.setupPromptHandlers();
       this.setupToolHandlers();
       
-      // TEMPORARILY DISABLE THIS FOR TESTING
-      // this.initializePreinstalledPackages();
-      console.log("STARTUP: Skipping preinstalled packages initialization");
+      // Initialize preinstalled packages
+      this.initializePreinstalledPackages();
+      this.logger.info("Initializing preinstalled packages");
 
       // Error handling
       this.server.onerror = (error) => {
-        console.log(`SERVER ERROR: ${error}`);
         this.logger.error('MCP Error', { error });
       };
       process.on('SIGINT', async () => {
@@ -188,12 +191,17 @@ class PythonExecutorServer {
         process.exit(0);
       });
       
-      console.log("STARTUP: Server construction completed successfully");
+      this.logger.info("Server construction completed successfully");
     } catch (error) {
-      console.log(`CRITICAL STARTUP ERROR: ${error instanceof Error ? error.message : String(error)}`);
-      console.log(error instanceof Error && error.stack ? error.stack : 'No stack trace available');
+      console.error(`CRITICAL STARTUP ERROR: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(error instanceof Error && error.stack ? error.stack : 'No stack trace available');
       throw error;
     }
+    
+    // Test the virtual environment setup
+    this.testVirtualEnvironment().catch(err => {
+      console.error(`Failed to test virtual environment: ${err instanceof Error ? err.message : String(err)}`);
+    });
   }
 
   private async getPythonVersion(): Promise<string> {
@@ -706,12 +714,21 @@ except Exception as e:
       }
 
       // Get activation prefix for the virtual environment
-      const { activateCmd, isWindows } = this.getActivationPrefix();
-      const command = `${activateCmd}python "${scriptPath}"`;
-      
-      this.logger.info('Getting installed packages', { command });
+      const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
 
-      // For Windows, we need to use cmd.exe to properly handle the activation
+      // Use the Python executable from the virtual environment
+      let command: string;
+      if (isWindows) {
+        // For Windows, we use cmd.exe to handle the activation
+        command = `${activateCmd}python "${scriptPath}"`;
+      } else {
+        // For Unix, we can directly use the Python executable from the venv
+        command = `${pythonExecutable} "${scriptPath}"`;
+      }
+
+      process.stderr.write(`DIRECT_DEBUG: Executing with command: ${command}\n`);
+
+      // Execute the command with appropriate options
       const execOptions = {
         timeout: this.config.execution.packageTimeoutMs,
         env: { ...process.env },
@@ -922,70 +939,67 @@ except Exception as e:
       // Validate the venv name format (getVenvPath will throw if invalid)
       const venvPath = this.getVenvPath(venvName);
 
-      // Use withVenvLock to prevent deletion during other operations
-      return this.withVenvLock(async () => {
-        // Check if the environment exists
-        const venvExists = await this.checkVenvExists(venvName);
-        if (!venvExists) {
-          this.logger.info('Attempted to delete non-existent virtual environment', { venvName });
-          return { 
-            content: [{ 
-              type: 'text', 
-              text: JSON.stringify({
-                status: 'not_found', 
-                message: `Virtual environment '${venvName}' does not exist or was already deleted`, 
-                venvName
-              }, null, 2), 
-              mediaType: 'application/json' 
-            }] 
-          };
-        }
+      // Check if the environment exists
+      const venvExists = await this.checkVenvExists(venvName);
+      if (!venvExists) {
+        this.logger.info('Attempted to delete non-existent virtual environment', { venvName });
+        return { 
+          content: [{ 
+            type: 'text', 
+            text: JSON.stringify({
+              status: 'not_found', 
+              message: `Virtual environment '${venvName}' does not exist or was already deleted`, 
+              venvName
+            }, null, 2), 
+            mediaType: 'application/json' 
+          }] 
+        };
+      }
 
-        try {
-          // Log the action
-          this.logger.info('Deleting virtual environment', { venvName, path: venvPath });
-          
-          // Actually delete the directory
-          await fs.rm(venvPath, { recursive: true, force: true });
-          
-          // Log success
-          this.logger.info('Successfully deleted virtual environment', { venvName, path: venvPath });
-          
-          // Return success response
-          return { 
-            content: [{ 
-              type: 'text', 
-              text: JSON.stringify({
-                status: 'deleted', 
-                message: `Successfully deleted virtual environment '${venvName}'`, 
-                venvName
-              }, null, 2), 
-              mediaType: 'application/json' 
-            }] 
-          };
-        } catch (error: any) {
-          // Log the deletion error
-          this.logger.error('Failed to delete virtual environment', { 
-            venvName, 
-            path: venvPath, 
-            error: error.message || String(error) 
-          });
-          
-          // Return an error response
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                status: 'error', 
-                message: `Failed to delete virtual environment '${venvName}': ${error.message || 'Unknown error'}`,
-                venvName
-              }, null, 2),
-              mediaType: 'application/json'
-            }],
-            isError: true
-          };
-        }
-      });
+      try {
+        // Log the action
+        this.logger.info('Deleting virtual environment', { venvName, path: venvPath });
+        
+        // Actually delete the directory
+        await fs.rm(venvPath, { recursive: true, force: true });
+        
+        // Log success
+        this.logger.info('Successfully deleted virtual environment', { venvName, path: venvPath });
+        
+        // Return success response
+        return { 
+          content: [{ 
+            type: 'text', 
+            text: JSON.stringify({
+              status: 'deleted', 
+              message: `Successfully deleted virtual environment '${venvName}'`, 
+              venvName
+            }, null, 2), 
+            mediaType: 'application/json' 
+          }] 
+        };
+      } catch (error: any) {
+        // Log the deletion error
+        this.logger.error('Failed to delete virtual environment', { 
+          venvName, 
+          path: venvPath, 
+          error: error.message || String(error) 
+        });
+        
+        // Return an error response
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'error', 
+              message: `Failed to delete virtual environment '${venvName}': ${error.message || 'Unknown error'}`,
+              venvName
+            }, null, 2),
+            mediaType: 'application/json'
+          }],
+          isError: true
+        };
+      }
     } catch (error: any) {
       // Handle errors from getVenvPath validation
       this.logger.error('Failed to validate venv for deletion', { venvName, error: error.message });
@@ -1038,13 +1052,20 @@ except Exception as e:
       });
 
       // Get activation details for the venv
-      const { activateCmd, isWindows } = this.getActivationPrefix();
+      const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
 
       // Prepare packages string with proper quoting
       const packagesString = packagesArray.map(pkg => `"${pkg.replace(/"/g, '\\"')}"`).join(' ');
 
       // Construct uninstall command with -y for automatic yes
-      const command = `${activateCmd}uv pip uninstall -y ${packagesString}`;
+      let command: string;
+      if (isWindows) {
+        // For Windows, we use cmd.exe to handle the activation
+        command = `${activateCmd}uv pip uninstall -y ${packagesString}`;
+      } else {
+        // For Unix, we can directly use the Python executable from the venv
+        command = `${pythonExecutable} -m pip uninstall -y ${packagesString}`;
+      }
       this.logger.info('Uninstalling packages with command', { command });
 
       // Execute the uninstall command
@@ -1370,115 +1391,45 @@ except Exception as e:
   }
 
   private async handleExecutePython(args: unknown) {
+    this.logger.debug("handleExecutePython called with args", { args });
+    
     // Check basic argument structure
     if (!isValidExecuteArgs(args)) {
+      this.logger.error("Invalid execute args");
       throw new ExecutorError(
         ErrorCode.INVALID_INPUT,
         'Invalid Python execution arguments'
       );
     }
 
-    // Log a strong warning about checking dependencies first (without blocking execution)
-    this.logger.warn('⚠️ REMINDER: Always verify dependencies BEFORE execute_python!', {
-      recommendation: 'Use list_packages and install_packages first to prevent "module not found" errors'
-    });
-
-    // Check for common imports in the code and verify if they're installed
+    // BYPASS DEPENDENCY CHECK
     let missingDependencies: string[] = [];
-    if (args && typeof (args as any).code === 'string') {
-      const code = (args as any).code;
-      // Extract import statements using regex
-      const importRegex = /^\s*(?:from\s+(\S+)|import\s+([^\s,]+))/gm;
-      const imports = new Set<string>();
-      
-      let match;
-      while ((match = importRegex.exec(code)) !== null) {
-        const moduleName = match[1] || match[2];
-        // Handle potential 'as' keyword in imports
-        const cleanedModuleName = moduleName.split(' as ')[0];
-        // Get the top-level package name (before the first dot)
-        const packageName = cleanedModuleName.split('.')[0];
-        if (packageName && !['os', 'sys', 'time', 're', 'json', 'math', 'random', 'datetime'].includes(packageName)) {
-          imports.add(packageName);
-        }
-      }
-      
-      if (imports.size > 0) {
-        // Get installed packages
-        try {
-          const installedPackages = await this.getInstalledPackages();
-          const installedNames = Object.keys(installedPackages).map(p => p.toLowerCase());
-          
-          // Find imports that might not be installed
-          missingDependencies = Array.from(imports).filter(
-            imp => !installedNames.some(pkg => pkg === imp.toLowerCase())
-          );
-          
-          if (missingDependencies.length > 0) {
-            this.logger.warn('⚠️ POTENTIAL MISSING DEPENDENCIES DETECTED!', {
-              imports: missingDependencies,
-              message: `Code appears to import packages that might not be installed: ${missingDependencies.join(', ')}`
-            });
-            
-            // Log a warning but don't block execution
-            this.logger.warn('⚠️ Continuing execution despite potential missing dependencies', {
-              recommendation: `If execution fails, run install_packages with {"packages": "${missingDependencies.join(', ')}"} first`
-            });
-            
-            // Continue execution without blocking - the Python error will show the real issue if modules are missing
-          }
-        } catch (error) {
-          // Log but continue - we'll let execution fail naturally if there's an issue
-          this.logger.error('Error checking for installed packages', {
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
-    }
+    this.logger.debug("Bypassed dependency check");
 
-    // If we got here, either no dependencies were detected or they're all installed
-
-    // Log the current execution state
-    this.logger.info('Python execution request received', { 
-      activeExecutions: this.activeExecutions,
-      maxConcurrent: this.config.execution.maxConcurrent
-    });
-
-    // Terminate any existing venv processes before proceeding
-    await this.terminateExistingVenvProcesses();
-
-    // If we're at the execution limit, terminate existing executions to make room
-    if (this.activeExecutions >= this.config.execution.maxConcurrent) {
-      this.logger.warn('Maximum concurrent executions reached. Terminating existing executions to make room.', {
-        currentCount: this.activeExecutions,
-        maxAllowed: this.config.execution.maxConcurrent
-      });
-      
-      // Reset the active executions counter to allow this new execution
-      this.activeExecutions = 0;
-    }
-
+    // SIMPLIFIED EXECUTION FOR TESTING
     const startTime = Date.now();
     this.activeExecutions++;
-
-    // Wrap execution in lock
-    return this.withVenvLock(async () => {
-      try {
-        // Ensure the virtual environment exists
-        await this.setupVirtualEnvironment();
-
-        // Determine the script path - either from args.scriptPath or by creating a temp file for code
-        let scriptPath: string;
-        let isTemporaryScript = false;
-
+    
+    // Declare command outside of try/catch for access in both blocks
+    let command: string = '';
+    let scriptPath: string;
+    let isTemporaryScript = false;
+    
+    try {
+      this.logger.debug("Starting direct Python execution");
+      
+      // Determine the script path - either from args.scriptPath or by creating a temp file for code
+      
       if ((args as any).scriptPath) {
         // Use provided script path
         scriptPath = (args as any).scriptPath;
+        this.logger.debug(`Using provided script path: ${scriptPath}`);
 
         // Verify the script exists
         try {
           await fs.access(scriptPath);
         } catch (error) {
+          this.logger.error(`Script file not found: ${scriptPath}`);
           throw new ExecutorError(
             ErrorCode.INVALID_INPUT,
             `Script file not found: ${scriptPath}`
@@ -1490,6 +1441,7 @@ except Exception as e:
           this.tempDir,
           `script_${Date.now()}.py`
         );
+        this.logger.debug(`Creating temporary script at: ${scriptPath}`);
         await fs.writeFile(scriptPath, (args as any).code);
         isTemporaryScript = true;
       } else {
@@ -1500,137 +1452,120 @@ except Exception as e:
         );
       }
 
-        // Determine activation and python executable
-        const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
-        
-        let results: string[];
+      this.logger.debug("Executing Python script with virtual environment");
 
-        if ((args as any).inputData && (args as any).inputData.length > 0) {
-          this.logger.info('Input data provided, will use python-shell', {
-            inputDataLength: (args as any).inputData.length
-          });
-
-          // When input data is provided, use PythonShell for stdin
-          const options: Options = {
-            mode: 'text',
-            pythonPath: pythonExecutable,
-            pythonOptions: ['-u'],
-            scriptPath: path.dirname(scriptPath),
-            args: (args as any).inputData || [],
-          };
-
-          // Execute with timeout
-          results = await Promise.race([
-            new Promise<string[]>((resolve, reject) => {
-              let pyshell = new PythonShell(path.basename(scriptPath), options);
-              const output: string[] = [];
-
-              pyshell.on('message', (message: string) => {
-                output.push(message);
-              });
-
-              pyshell.end((err: Error | null) => {
-                if (err) reject(err);
-                else resolve(output);
-              });
-            }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Execution timeout')), this.config.execution.timeoutMs)
-            ),
-          ]);
-        } else {
-          // For scripts without input data, use the command line approach
-          const command = `${activateCmd}python "${scriptPath}"`;
-          this.logger.info('Executing Python script with command', { command });
-
-          // Set execution options
-          const execOptions = {
-            timeout: this.config.execution.timeoutMs,
-            env: { ...process.env },
-            ...(isWindows ? { shell: 'cmd.exe' } : {})
-          };
-
-          const { stdout, stderr } = await execAsync(command, execOptions);
-
-          if (stderr) {
-            this.logger.info('Stderr during Python execution', { stderr });
-          }
-
-          results = stdout.split('\n');
-        }
-
-        // Clean up temporary file if we created one
-        if (isTemporaryScript) {
-          await fs.unlink(scriptPath).catch(
-            (err) => this.logger.error('Failed to clean up temp file', { error: err.message })
-          );
-        }
-
-        const endTime = Date.now();
-        const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
-
-        metrics.recordExecution({
-          startTime,
-          endTime,
-          memoryUsageMb: memoryUsage,
-          success: true,
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: results.join('\n'),
-              mediaType: 'text/plain'
-            },
-            {
-              type: 'text',
-              text: JSON.stringify({
-                executionTime: `${endTime - startTime}ms`,
-                memoryUsage: `${memoryUsage.toFixed(2)} MB`
-              }, null, 2),
-              mediaType: 'application/json'
-            }
-          ],
-        };
-      } catch (error: unknown) {
-        const endTime = Date.now();
-        const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
-
-        metrics.recordExecution({
-          startTime,
-          endTime,
-          memoryUsageMb: memoryUsage,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error('Python execution error', { error: errorMessage });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error executing Python code: ${errorMessage}`,
-              mediaType: 'text/plain'
-            },
-            {
-              type: 'text',
-              text: JSON.stringify({
-                errorType: error instanceof Error ? error.constructor.name : 'Unknown',
-                executionTime: `${endTime - startTime}ms`,
-                memoryUsage: `${memoryUsage.toFixed(2)} MB`
-              }, null, 2),
-              mediaType: 'application/json'
-            }
-          ],
-          isError: true,
-        };
-      } finally {
-        this.activeExecutions--;
+      // Check if the virtual environment exists
+      const venvExists = await this.checkVenvExists();
+      if (!venvExists) {
+        this.logger.error("Virtual environment does not exist");
+        throw new ExecutorError(
+          ErrorCode.INTERNAL_ERROR,
+          `Virtual environment does not exist at path: ${this.getVenvPath()}`
+        );
       }
-    }); // End of withVenvLock
+
+      // Get activation details for the virtual environment
+      const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
+
+      // Use the Python executable from the virtual environment
+      let command: string;
+      if (isWindows) {
+        // For Windows, we use cmd.exe to handle the activation
+        command = `${activateCmd}python "${scriptPath}"`;
+      } else {
+        // For Unix, we can directly use the Python executable from the venv
+        command = `${pythonExecutable} "${scriptPath}"`;
+      }
+
+      this.logger.debug(`Using virtual environment at: ${this.getVenvPath()}`);
+      this.logger.debug(`Python executable path: ${pythonExecutable}`);
+      this.logger.debug(`Full command: ${command}`);
+
+      // Execute the command with appropriate options
+      const execOptions = {
+        timeout: this.config.execution.timeoutMs,
+        env: { ...process.env },
+        ...(isWindows ? { shell: 'cmd.exe' } : {})
+      };
+
+      const { stdout, stderr } = await execAsync(command, execOptions);
+
+      this.logger.debug(`Execution completed with exit code: 0`);
+      this.logger.debug(`Stdout length: ${stdout.length}`);
+      if (stderr && stderr.length > 0) {
+        this.logger.debug(`Stderr: ${stderr}`);
+      }
+
+      const results = stdout.split('\n');
+      this.logger.debug(`Execution completed successfully with ${results.length} lines of output`);
+
+      // Clean up temporary file if we created one
+      if (isTemporaryScript) {
+        await fs.unlink(scriptPath).catch(
+          (err) => this.logger.error(`Failed to clean up temp file: ${err.message}`)
+        );
+      }
+
+      const endTime = Date.now();
+      
+      this.logger.debug("Returning execution results");
+      return {
+        content: [
+          {
+            type: 'text',
+            text: results.join('\n'),
+            mediaType: 'text/plain'
+          },
+          {
+            type: 'text',
+            text: JSON.stringify({
+              executionTime: `${endTime - startTime}ms`,
+              directExecution: true
+            }, null, 2),
+            mediaType: 'application/json'
+          }
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Python execution error: ${errorMessage}`);
+      
+      // Additional diagnostics for virtual environment issues
+      if (errorMessage.includes("No such file or directory") && errorMessage.includes(this.getVenvPath())) {
+        this.logger.error(`Virtual environment missing or corrupted at ${this.getVenvPath()}`);
+        // Try to repair or recreate the venv
+        try {
+          await this.setupVirtualEnvironment();
+          this.logger.debug(`Recreated virtual environment at ${this.getVenvPath()}`);
+        } catch (setupError) {
+          this.logger.error(`Failed to recreate virtual environment: ${setupError instanceof Error ? setupError.message : String(setupError)}`);
+        }
+      }
+      
+      const endTime = Date.now();
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error executing Python code: ${errorMessage}`,
+            mediaType: 'text/plain'
+          },
+          {
+            type: 'text',
+            text: JSON.stringify({
+              errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+              executionTime: `${endTime - startTime}ms`,
+              virtualEnvironment: this.getVenvPath(),
+              command: command
+            }, null, 2),
+            mediaType: 'application/json'
+          }
+        ],
+        isError: true,
+      };
+    } finally {
+      this.activeExecutions--;
+    }
   }
 
   private async cleanupTempFiles(): Promise<void> {
@@ -1709,40 +1644,6 @@ except Exception as e:
       throw new Error(`Python version ${installedVersion} is below required minimum ${minVersion}`);
     }
     this.logger.info('Python version verified', { installed: installedVersion, minimum: minVersion });
-  }
-
-  /**
-   * Ensures only one operation happens on the virtual environment at a time.
-   * This is crucial for preventing race conditions when multiple operations
-   * attempt to modify the virtual environment simultaneously.
-   */
-  private async withVenvLock<T>(operation: () => Promise<T>): Promise<T> {
-    // Wait for any existing lock
-    while (this.venvLockPromise) {
-      try {
-        await this.venvLockPromise;
-      } catch {
-        // Ignore errors in the previous lock, just wait for it to settle
-      }
-    }
-
-    // Create a new lock (promise) for this operation
-    let releaseLock!: () => void;
-    this.venvLockPromise = new Promise<void>(resolve => {
-      releaseLock = resolve;
-    });
-    this.logger.debug('Acquired single venv lock');
-
-    try {
-      // Execute the actual operation
-      const result = await operation();
-      return result;
-    } finally {
-      // Release the lock and remove it from the map
-      releaseLock();
-      this.venvLockPromise = null;
-      this.logger.debug('Released single venv lock');
-    }
   }
 
   /**
@@ -1828,64 +1729,127 @@ except Exception as e:
    * @throws Error if the virtual environment cannot be created
    */
   private async setupVirtualEnvironment(venvName?: string): Promise<void> {
-    // Wrap the core logic in the lock to prevent concurrent creation attempts
-    return this.withVenvLock(async () => {
-      // Get validated path
-      const venvPath = this.getVenvPath();
-      this.logger.debug('Attempting to setup virtual environment', { path: venvPath });
+    // Get validated path
+    const venvPath = this.getVenvPath();
+    this.logger.debug('Attempting to setup virtual environment', { path: venvPath });
 
-      // Check if the venv already exists
-      const venvExists = await this.checkVenvExists();
+    // Check if the venv already exists
+    const venvExists = await this.checkVenvExists();
 
-      if (!venvExists) {
-        this.logger.info('Creating virtual environment', { path: venvPath });
+    if (!venvExists) {
+      this.logger.info('Creating virtual environment', { path: venvPath });
+      
+      // Ensure parent directories exist
+      await fs.mkdir(path.dirname(venvPath), { recursive: true });
+
+      // Use system's python to create the venv with pip
+      try {
+        // Create venv with pip support and without site packages (for isolation)
+        const createCmd = `python -m venv --clear --without-pip "${venvPath}"`;
+        await execAsync(createCmd);
         
-        // Ensure parent directories exist
-        await fs.mkdir(path.dirname(venvPath), { recursive: true });
-
-        // Use system's python to create the venv with pip
-        try {
-          // Create venv with pip support and without site packages (for isolation)
-          const createCmd = `python -m venv --clear --without-pip "${venvPath}"`;
-          await execAsync(createCmd);
-          
-          // Install pip using the ensurepip module
-          const { activateCmd, isWindows } = this.getActivationPrefix();
-          const pipInstallCmd = `${activateCmd}python -m ensurepip --upgrade`;
-          
-          // For Windows, we need to use cmd.exe to properly handle the activation
-          const execOptions = {
-            timeout: this.config.execution.packageTimeoutMs,
-            env: { ...process.env },
-            ...(isWindows ? { shell: 'cmd.exe' } : {})
-          };
-          
-          await execAsync(pipInstallCmd, execOptions);
-          
-          this.logger.info('Successfully created virtual environment with pip', { path: venvPath });
-        } catch (error) {
-          this.logger.error('Failed to create virtual environment', { 
+        // Install pip using the ensurepip module
+        const { activateCmd, isWindows } = this.getActivationPrefix();
+        const pipInstallCmd = `${activateCmd}python -m ensurepip --upgrade`;
+        
+        // For Windows, we need to use cmd.exe to properly handle the activation
+        const execOptions = {
+          timeout: this.config.execution.packageTimeoutMs,
+          env: { ...process.env },
+          ...(isWindows ? { shell: 'cmd.exe' } : {})
+        };
+        
+        await execAsync(pipInstallCmd, execOptions);
+        
+        this.logger.info('Successfully created virtual environment with pip', { path: venvPath });
+      } catch (error) {
+        this.logger.error('Failed to create virtual environment', { 
+          path: venvPath, 
+          error: error instanceof Error ? error.message : String(error) 
+        });
+        
+        // Attempt to clean up potentially incomplete venv directory
+        await fs.rm(venvPath, { recursive: true, force: true }).catch(rmErr => {
+          this.logger.error('Failed to cleanup incomplete venv directory', { 
             path: venvPath, 
-            error: error instanceof Error ? error.message : String(error) 
+            error: rmErr instanceof Error ? rmErr.message : String(rmErr) 
           });
-          
-          // Attempt to clean up potentially incomplete venv directory
-          await fs.rm(venvPath, { recursive: true, force: true }).catch(rmErr => {
-            this.logger.error('Failed to cleanup incomplete venv directory', { 
-              path: venvPath, 
-              error: rmErr instanceof Error ? rmErr.message : String(rmErr) 
-            });
-          });
-          
-          throw new ExecutorError(
-            ErrorCode.INTERNAL_ERROR, 
-            `Failed to create virtual environment: ${error instanceof Error ? error.message : String(error)}`
-          );
-        }
-      } else {
-        this.logger.debug('Virtual environment already exists', { path: venvPath });
+        });
+        
+        throw new ExecutorError(
+          ErrorCode.INTERNAL_ERROR, 
+          `Failed to create virtual environment: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
-    });
+    } else {
+      this.logger.debug('Virtual environment already exists', { path: venvPath });
+    }
+  }
+
+  /**
+   * Test the virtual environment to verify it's working properly
+   * 
+   * @returns Promise that resolves when the test is complete
+   */
+  private async testVirtualEnvironment(): Promise<void> {
+    try {
+      const venvPath = this.getVenvPath();
+      const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
+      
+      // Create a temporary script to test the virtual environment
+      const tempScript = path.join(this.tempDir, `test_venv_${Date.now()}.py`);
+      const testCode = `
+import sys
+print(f"Python path: {sys.executable}")
+print(f"Python version: {sys.version}")
+try:
+    import numpy as np
+    print("NumPy imported successfully")
+except ImportError:
+    print("NumPy import failed")
+try:
+    from scipy import stats
+    print("SciPy imported successfully")
+except ImportError:
+    print("SciPy import failed")
+try:
+    import matplotlib.pyplot as plt
+    print("Matplotlib imported successfully")
+except ImportError:
+    print("Matplotlib import failed")
+`;
+      
+      // Write the test script
+      await fs.writeFile(tempScript, testCode);
+      
+      // Execute the test script using the virtual environment
+      const command = isWindows 
+        ? `${activateCmd}python "${tempScript}"`
+        : `${pythonExecutable} "${tempScript}"`;
+      
+      const execOptions = {
+        timeout: this.config.execution.timeoutMs,
+        env: { ...process.env },
+        ...(isWindows ? { shell: 'cmd.exe' } : {})
+      };
+      
+      const execAsync = promisify(exec);
+      const { stdout, stderr } = await execAsync(command, execOptions);
+      
+      process.stderr.write("VENV TEST RESULTS:\n");
+      process.stderr.write(stdout + "\n");
+      
+      if (stderr) {
+        process.stderr.write("VENV TEST STDERR:\n");
+        process.stderr.write(stderr + "\n");
+      }
+      
+      // Clean up
+      await fs.unlink(tempScript).catch(() => {});
+      
+    } catch (error) {
+      process.stderr.write(`VENV TEST ERROR: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
   }
 
   private async handleInstallPackages(args: unknown) {
@@ -2233,7 +2197,7 @@ except Exception as e:
         await this.setupVirtualEnvironment();
         
         // Get activation details for the virtual environment
-        const { activateCmd, isWindows } = this.getActivationPrefix();
+        const { activateCmd, isWindows, pythonExecutable } = this.getActivationPrefix();
 
         // Create a Python script that will run the analysis
         // This avoids PATH issues by running the analysis modules directly
@@ -2539,24 +2503,44 @@ print(json.dumps(results, indent=2))
   }
 
   async run() {
-    console.log("STARTUP: Beginning server run method");
+    this.logger.info("Beginning server run method");
     try {
-      console.log("STARTUP: Creating StdioServerTransport");
+      this.logger.info("Creating StdioServerTransport");
       const transport = new StdioServerTransport();
-      console.log("STARTUP: Calling server.connect with transport");
+      this.logger.info("Calling server.connect with transport");
       await this.server.connect(transport);
-      console.log("STARTUP: Python Executor MCP server running on stdio");
-      this.logger.info('Python Executor MCP server running on stdio');
+      this.logger.info("Python Executor MCP server running on stdio");
     } catch (error) {
-      console.log(`CRITICAL ERROR IN RUN: ${error instanceof Error ? error.message : String(error)}`);
-      console.log(error instanceof Error && error.stack ? error.stack : 'No stack trace available');
+      this.logger.error(`Critical error in run method: ${error instanceof Error ? error.message : String(error)}`, {
+        stack: error instanceof Error && error.stack ? error.stack : 'No stack trace available'
+      });
       process.exit(1);
     }
   }
 }
 
-const server = new PythonExecutorServer();
-server.run().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// At the end of src/index.ts, replace the server.run() call with:
+try {
+  // Use console.error here as logger might not be initialized yet
+  console.error("STARTUP: Creating PythonExecutorServer instance");
+  const server = new PythonExecutorServer();
+
+  // Now logger should be initialized, prefer using it
+  server.logger.info("STARTUP: PythonExecutorServer instance created");
+
+  server.logger.info("STARTUP: Calling server.run()");
+  server.run().catch((error) => {
+    // Logger should be available here
+    server.logger.error(`FATAL RUNTIME ERROR: ${error instanceof Error ? error.message : String(error)}`, { 
+      stack: error instanceof Error ? error.stack : 'No stack available'
+    });
+    process.exit(1); // Exit after logging runtime error
+  });
+  server.logger.info("STARTUP: After server.run() call (server likely running)");
+
+} catch (initError) {
+  // Logger is likely *not* initialized here, use console.error
+  console.error(`CRITICAL INITIALIZATION ERROR: ${initError instanceof Error ? initError.message : String(initError)}`);
+  console.error(initError instanceof Error && initError.stack ? initError.stack : 'No stack trace available');
+  process.exit(1); // Exit after logging init error
+}
