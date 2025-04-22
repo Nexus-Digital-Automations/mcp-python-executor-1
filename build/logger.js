@@ -23,7 +23,8 @@ export class Logger {
         const levels = {
             debug: 0,
             info: 1,
-            error: 2
+            warn: 2,
+            error: 3
         };
         return levels[level] >= levels[this.config.level];
     }
@@ -36,6 +37,12 @@ export class Logger {
     info(message, context) {
         if (this.shouldLog('info')) {
             const entry = this.createLogEntry('info', message, context);
+            console.error(this.formatLog(entry));
+        }
+    }
+    warn(message, context) {
+        if (this.shouldLog('warn')) {
+            const entry = this.createLogEntry('warn', message, context);
             console.error(this.formatLog(entry));
         }
     }

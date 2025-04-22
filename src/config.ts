@@ -97,6 +97,10 @@ export function loadConfig(): ServerConfig {
         }, {} as Record<string, string>);
     }
 
+    if (process.env.VENV_PATH) {
+        config.python.venvPath = process.env.VENV_PATH;
+    }
+
     if (process.env.MAX_MEMORY_MB) {
         config.execution.maxMemoryMb = parseInt(process.env.MAX_MEMORY_MB, 10);
     }

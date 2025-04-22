@@ -1,7 +1,7 @@
 import { ServerConfig } from './config.js';
 
 export interface LogEntry {
-    level: 'debug' | 'info' | 'error';
+    level: 'debug' | 'info' | 'error' | 'warn';
     message: string;
     timestamp: string;
     context?: Record<string, unknown>;
@@ -12,6 +12,7 @@ export class Logger {
 
     constructor(config: ServerConfig['logging']) {
         this.config = config;
+        console.log("DIRECT_LOGGER: Logger instance created with config:", JSON.stringify(config));
     }
 
     private formatLog(entry: LogEntry): string {
@@ -40,12 +41,14 @@ export class Logger {
         const levels: Record<string, number> = {
             debug: 0,
             info: 1,
-            error: 2
+            warn: 2,
+            error: 3
         };
         return levels[level] >= levels[this.config.level];
     }
 
     debug(message: string, context?: Record<string, unknown>) {
+        console.log(`DIRECT_DEBUG: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('debug')) {
             const entry = this.createLogEntry('debug', message, context);
             console.error(this.formatLog(entry));
@@ -53,13 +56,23 @@ export class Logger {
     }
 
     info(message: string, context?: Record<string, unknown>) {
+        console.log(`DIRECT_INFO: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('info')) {
             const entry = this.createLogEntry('info', message, context);
             console.error(this.formatLog(entry));
         }
     }
 
+    warn(message: string, context?: Record<string, unknown>) {
+        console.log(`DIRECT_WARN: ${message} ${context ? JSON.stringify(context) : ''}`);
+        if (this.shouldLog('warn')) {
+            const entry = this.createLogEntry('warn', message, context);
+            console.error(this.formatLog(entry));
+        }
+    }
+
     error(message: string, context?: Record<string, unknown>) {
+        console.log(`DIRECT_ERROR: ${message} ${context ? JSON.stringify(context) : ''}`);
         if (this.shouldLog('error')) {
             const entry = this.createLogEntry('error', message, context);
             console.error(this.formatLog(entry));

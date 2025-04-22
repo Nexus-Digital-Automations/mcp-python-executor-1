@@ -23,15 +23,16 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0",
-    "python-shell": "^5.0.0",
-    "upgrade": "^1.1.0",
-    "cross-spawn": "^7.0.6",
     "axios": "^1.6.0",
-    "sqlite3": "^5.0.0"
+    "cross-spawn": "^7.0.6",
+    "python-shell": "^5.0.0",
+    "sqlite3": "^5.0.0",
+    "upgrade": "^1.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
     "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "@types/python-shell": "^0.4.2",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",
     "eslint": "^8.0.0",
