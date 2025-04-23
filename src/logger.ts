@@ -1,4 +1,4 @@
-import { ServerConfig } from './config.js';
+import { Config } from './config.js';
 
 export interface LogEntry {
     level: 'debug' | 'info' | 'error' | 'warn';
@@ -8,9 +8,9 @@ export interface LogEntry {
 }
 
 export class Logger {
-    private config: ServerConfig['logging'];
+    private config: Config['logging'];
 
-    constructor(config: ServerConfig['logging']) {
+    constructor(config: Config['logging']) {
         this.config = config;
         if (this.shouldLog('info')) {
             const entry = this.createLogEntry('info', 'Logger instance created with config', config);
@@ -19,12 +19,8 @@ export class Logger {
     }
 
     private formatLog(entry: LogEntry): string {
-        if (this.config.format === 'json') {
-            return JSON.stringify(entry);
-        } else {
-            const context = entry.context ? ` ${JSON.stringify(entry.context)}` : '';
-            return `[${entry.timestamp}] ${entry.level.toUpperCase()}: ${entry.message}${context}`;
-        }
+        const context = entry.context ? ` ${JSON.stringify(entry.context)}` : '';
+        return `[${entry.timestamp}] ${entry.level.toUpperCase()}: ${entry.message}${context}`;
     }
 
     private createLogEntry(
@@ -78,12 +74,8 @@ export class Logger {
         }
     }
 
-    setLogLevel(level: ServerConfig['logging']['level']) {
+    setLogLevel(level: string) {
         this.config.level = level;
-    }
-
-    setLogFormat(format: ServerConfig['logging']['format']) {
-        this.config.format = format;
     }
 }
 

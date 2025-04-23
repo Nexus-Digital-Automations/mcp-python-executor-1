@@ -2,7 +2,31 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-export function loadConfig() {
+
+export interface PythonConfig {
+    venvPath: string;
+    minVersion: string;
+    useVirtualEnv: boolean;
+    packages: Record<string, string>;
+}
+
+export interface Config {
+    python: PythonConfig;
+    execution: {
+        timeoutMs: number;
+        packageTimeoutMs: number;
+    };
+    temp: {
+        cleanupIntervalMs: number;
+        maxAgeMs: number;
+    };
+    logging: {
+        level: string;
+        file?: string;
+    };
+}
+
+export function loadConfig(): Config {
     return {
         python: {
             venvPath: process.env.PYTHON_VENV_PATH || path.join(os.homedir(), '.python-executor', 'venv'),
@@ -19,7 +43,7 @@ export function loadConfig() {
         },
         execution: {
             timeoutMs: process.env.EXECUTION_TIMEOUT_MS ? parseInt(process.env.EXECUTION_TIMEOUT_MS, 10) : 30000,
-            packageTimeoutMs: process.env.PACKAGE_TIMEOUT_MS ? parseInt(process.env.PACKAGE_TIMEOUT_MS, 10) : 300000
+            packageTimeoutMs: 300000
         },
         temp: {
             cleanupIntervalMs: 3600000,
@@ -31,39 +55,51 @@ export function loadConfig() {
         }
     };
 }
+
+// Add new file: src/dependencies.ts
+export interface DependencyGraph {
+    name: string;
+    version: string;
+    dependencies: DependencyGraph[];
+}
+
 export class DependencyResolver {
-    constructor() {
-        this.cache = new Map();
-    }
-    async resolveDependencies(packages) {
-        const graphs = [];
+    private cache: Map<string, DependencyGraph> = new Map();
+
+    async resolveDependencies(packages: string[]): Promise<DependencyGraph[]> {
+        const graphs: DependencyGraph[] = [];
+
         for (const pkg of packages) {
             if (!this.cache.has(pkg)) {
                 const deps = await this.getPipDependencies(pkg);
                 this.cache.set(pkg, deps);
             }
-            graphs.push(this.cache.get(pkg));
+            graphs.push(this.cache.get(pkg)!);
         }
+
         return this.optimizeDependencies(graphs);
     }
-    async getPipDependencies(pkg) {
+
+    private async getPipDependencies(pkg: string): Promise<DependencyGraph> {
         // Use pip show to get package info
         const execAsync = promisify(exec);
+
         try {
             const { stdout } = await execAsync(`pip show ${pkg}`);
             // Parse pip output and build dependency tree
             return this.parsePipOutput(stdout);
-        }
-        catch (error) {
+        } catch (error) {
             throw new Error(`Failed to resolve dependencies for ${pkg}`);
         }
     }
-    parsePipOutput(output) {
+
+    private parsePipOutput(output: string): DependencyGraph {
         // Parse pip show output and return dependency graph
         // Implementation details...
-        return {};
+        return {} as DependencyGraph;
     }
-    optimizeDependencies(graphs) {
+
+    private optimizeDependencies(graphs: DependencyGraph[]): DependencyGraph[] {
         // Optimize by removing duplicate dependencies
         // Implementation details...
         return graphs;

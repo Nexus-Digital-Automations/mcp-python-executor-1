@@ -7,13 +7,8 @@ export class Logger {
         }
     }
     formatLog(entry) {
-        if (this.config.format === 'json') {
-            return JSON.stringify(entry);
-        }
-        else {
-            const context = entry.context ? ` ${JSON.stringify(entry.context)}` : '';
-            return `[${entry.timestamp}] ${entry.level.toUpperCase()}: ${entry.message}${context}`;
-        }
+        const context = entry.context ? ` ${JSON.stringify(entry.context)}` : '';
+        return `[${entry.timestamp}] ${entry.level.toUpperCase()}: ${entry.message}${context}`;
     }
     createLogEntry(level, message, context) {
         return {
@@ -58,9 +53,6 @@ export class Logger {
     }
     setLogLevel(level) {
         this.config.level = level;
-    }
-    setLogFormat(format) {
-        this.config.format = format;
     }
 }
 export class ExecutorError extends Error {
