@@ -2,20 +2,22 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-export function loadConfig() {
+import * as fs from 'fs/promises';
+export async function loadConfig() {
+    // Define default base path for virtual environments
+    const defaultVenvsBasePath = path.join(os.homedir(), '.python-executor', 'venvs');
+    // Ensure the venvsBasePath directory exists
+    const venvsBasePath = process.env.VENVS_BASE_PATH || defaultVenvsBasePath;
+    await fs.mkdir(venvsBasePath, { recursive: true })
+        .catch(err => {
+        console.error(`WARNING: Failed to create venvsBasePath directory at ${venvsBasePath}: ${err.message}`);
+    });
     return {
         python: {
-            venvPath: process.env.PYTHON_VENV_PATH || path.join(os.homedir(), '.python-executor', 'venv'),
+            venvsBasePath,
+            defaultVenvName: process.env.DEFAULT_VENV_NAME || 'default',
             minVersion: '3.8.0',
-            useVirtualEnv: true,
-            packages: {
-                'numpy': '>=1.20.0',
-                'pandas': '>=1.3.0',
-                'matplotlib': '>=3.4.0',
-                'scikit-learn': '>=0.24.0',
-                'requests': '>=2.25.0',
-                'beautifulsoup4': '>=4.9.0',
-            }
+            packages: {}
         },
         execution: {
             timeoutMs: process.env.EXECUTION_TIMEOUT_MS ? parseInt(process.env.EXECUTION_TIMEOUT_MS, 10) : 30000,
