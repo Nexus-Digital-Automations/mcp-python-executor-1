@@ -44,7 +44,17 @@ const isValidVenvArgs = (args) => {
         args !== null &&
         typeof args.venvName === 'string' &&
         (args.description === undefined || typeof args.description === 'string') &&
-        (args.confirm === undefined || typeof args.confirm === 'boolean'));
+        (args.confirm === undefined || typeof args.confirm === 'boolean') &&
+        (args.pythonVersion === undefined || typeof args.pythonVersion === 'string'));
+};
+const isValidExecutePythonFileArgs = (args) => {
+    return (typeof args === 'object' &&
+        args !== null &&
+        typeof args.filePath === 'string' &&
+        (args.venvName === undefined || typeof args.venvName === 'string') &&
+        (args.inputData === undefined ||
+            (Array.isArray(args.inputData) &&
+                args.inputData.every((item) => typeof item === 'string'))));
 };
 class PythonExecutorServer {
     constructor() {
@@ -95,6 +105,22 @@ class PythonExecutorServer {
                     {
                         name: 'purpose',
                         description: 'What the packages will be used for',
+                        required: false
+                    }
+                ]
+            },
+            'create-venv': {
+                name: 'create-venv',
+                description: 'Guide for creating Python virtual environments',
+                arguments: [
+                    {
+                        name: 'purpose',
+                        description: 'The purpose or type of project this environment will be used for',
+                        required: true
+                    },
+                    {
+                        name: 'python_version',
+                        description: 'Specific Python version required (if any)',
                         required: false
                     }
                 ]
@@ -229,8 +255,23 @@ class PythonExecutorServer {
                                 text: `Installing packages: ${packages}\nPurpose: ${purpose}\n\nLet's ensure safe installation:`
                                     + '\n1. Verify package names and versions'
                                     + '\n2. Check for potential conflicts'
-                                    + '\n3. Consider security implications'
-                                    + '\n4. Suggest alternative packages if relevant'
+                                    + '\n3. Determine the optimal installation order'
+                                    + '\n4. Suggest best practices for package management'
+                            }
+                        }
+                    ]
+                };
+            }
+            if (request.params.name === 'create-venv') {
+                const purpose = request.params.arguments?.purpose || '';
+                const pythonVersion = request.params.arguments?.python_version || '';
+                return {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `Purpose: ${purpose}\nPython Version: ${pythonVersion}\n\n🔹 Virtual Environment Creation Guide 🔹\n\nI'll help you create a Python virtual environment optimized for: ${purpose}\n\n⚠️ IMPORTANT NEW FEATURES ⚠️\n\n1. **Python Version Specification**:\n   - You can now specify which Python version to use when creating an environment\n   - Use the 'pythonVersion' parameter with the 'create_venv' tool\n   - For macOS users:\n     * For Python 3.13: Use \`"pythonVersion": "3.13"\`\n     * For other versions: Use the full path like \`"pythonVersion": "/opt/homebrew/bin/python3.12"\`\n   - If not specified, the system default Python will be used\n\n2. **Automatic pip Upgrade**:\n   - All newly created environments will have pip automatically upgraded to the latest version\n   - This ensures compatibility with modern packages and security fixes\n   - No additional steps required - this happens automatically\n\nTo create a ${pythonVersion ? 'Python ' + pythonVersion : ''} virtual environment for ${purpose}, follow these steps:\n\n1. Use the 'create_venv' tool with these parameters:\n   - venvName: Choose a descriptive name related to your project\n   - description: Briefly describe the environment's purpose\n${pythonVersion ? '   - pythonVersion: "' + pythonVersion + '" (as specified)\n' : '   - pythonVersion: Optional - specify if you need a particular Python version\n'}\n2. After creation, install required packages using 'install_packages'\n3. Verify installation with 'list_packages'\n4. Execute your code with 'execute_python', specifying the environment name\n\nThis will create an isolated environment with ${pythonVersion || 'the system default Python'} and the latest pip version.`
                             }
                         }
                     ]
@@ -549,11 +590,21 @@ Features:
 - Creates isolated environment for Python dependencies
 - Prevents package conflicts between projects
 - Supports optional description for the environment
+- **Allows specifying the Python version to use**
+- **Automatically upgrades pip after creation**
 
 Example usage:
 {
   "venvName": "data-science",
-  "description": "Environment for data science projects with numpy and pandas"
+  "description": "Environment for data science projects with numpy and pandas",
+  "pythonVersion": "3.13" // For Python 3.13 on macOS
+}
+
+For macOS users with other Python versions, use the full path:
+{
+  "venvName": "data-science-py312",
+  "description": "Environment for data science with Python 3.12",
+  "pythonVersion": "/opt/homebrew/bin/python3.12" // Full path for other versions
 }`,
                     inputSchema: {
                         type: 'object',
@@ -565,6 +616,10 @@ Example usage:
                             description: {
                                 type: 'string',
                                 description: 'Optional description of the virtual environment purpose',
+                            },
+                            pythonVersion: {
+                                type: 'string',
+                                description: 'Optional Python version to use for the virtual environment. On macOS, use "3.13" for Python 3.13 or the full path like "/opt/homebrew/bin/python3.12" for other versions. Defaults to the system default.',
                             }
                         },
                         required: ['venvName'],
@@ -628,6 +683,64 @@ Example usage:
                         required: ['venvName', 'description'],
                     },
                 },
+                {
+                    name: 'execute_python_file',
+                    description: `Execute a Python file within a specified virtual environment.
+
+⚠️ CRITICAL DEPENDENCY WARNING ⚠️
+DO NOT USE THIS TOOL FIRST! ALWAYS CHECK AND INSTALL DEPENDENCIES FIRST!
+
+Follow this exact workflow:
+1. FIRST use 'list_packages' to check dependencies
+2. THEN use 'install_packages' to install missing dependencies
+3. ONLY AFTER DEPENDENCIES ARE INSTALLED use execute_python_file
+
+Features:
+- Execute an existing Python script file
+- Use a specific virtual environment for execution
+- Pass input data to the script via stdin
+- Capture stdout and stderr
+- Error handling and timeout protection
+
+⚠️ IMPORTANT: For File Output Operations ⚠️
+If your Python code saves files (plots, data, etc.), you MUST:
+1. Include the following snippet at the beginning of your code:
+   import os
+   import pathlib
+   output_dir = os.environ.get('OUTPUT_PATH', '.')
+   pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+2. Use os.path.join(output_dir, 'filename.ext') for all file paths
+3. Set the OUTPUT_PATH environment variable before execution
+Failure to use this pattern may result in "Read-only file system" errors!
+
+Example usage:
+{
+  "filePath": "/path/to/your/existing_script.py",
+  "venvName": "my-project-env",
+  "inputData": ["line1", "line2"]
+}`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            filePath: {
+                                type: 'string',
+                                description: 'The absolute or relative path to the Python file to execute.',
+                            },
+                            venvName: {
+                                type: 'string',
+                                description: 'Optional virtual environment name to use for execution. Defaults to the configured default venv.',
+                            },
+                            inputData: {
+                                type: 'array',
+                                items: {
+                                    type: 'string',
+                                },
+                                description: 'Optional array of input strings that will be available to the script via stdin',
+                            }
+                        },
+                        required: ['filePath'],
+                    },
+                },
             ],
         }));
         // Handle tool execution
@@ -635,6 +748,8 @@ Example usage:
             switch (request.params.name) {
                 case 'execute_python':
                     return this.handleExecutePython(request.params.arguments);
+                case 'execute_python_file':
+                    return this.handleExecutePythonFile(request.params.arguments);
                 case 'install_packages':
                     return this.handleInstallPackages(request.params.arguments);
                 case 'health_check':
@@ -791,10 +906,10 @@ except Exception as e:
         if (!isValidVenvArgs(args)) {
             throw new ExecutorError(ErrorCode.INVALID_INPUT, 'Missing or invalid venvName argument. Please provide a name for the virtual environment.');
         }
-        const { venvName, description } = args;
+        const { venvName, description, pythonVersion } = args;
         try {
-            // Create the virtual environment
-            await this.venvManager.setupVirtualEnvironment(venvName);
+            // Create the virtual environment, passing the pythonVersion
+            await this.venvManager.setupVirtualEnvironment(venvName, pythonVersion);
             const venvPath = this.venvManager.getVenvPath(venvName);
             // Set description if provided
             if (description) {
@@ -809,7 +924,8 @@ except Exception as e:
                             message: `Successfully created virtual environment '${venvName}'`,
                             venvName,
                             path: venvPath,
-                            description: description || ''
+                            description: description || '',
+                            pythonVersion: pythonVersion || 'system default'
                         }, null, 2),
                         mediaType: 'application/json'
                     }]
@@ -818,6 +934,7 @@ except Exception as e:
         catch (error) {
             this.logger?.error?.('Failed to create virtual environment', {
                 venvName,
+                pythonVersion,
                 error: error.message || String(error)
             });
             return {
@@ -826,7 +943,8 @@ except Exception as e:
                         text: JSON.stringify({
                             status: 'error',
                             message: `Failed to create virtual environment '${venvName}': ${error.message || 'Unknown error'}`,
-                            venvName
+                            venvName,
+                            pythonVersion: pythonVersion || 'system default'
                         }, null, 2),
                         mediaType: 'application/json'
                     }],
@@ -1084,6 +1202,138 @@ except Exception as e:
                         text: JSON.stringify({
                             status: 'error',
                             message: `Error executing Python code: ${errorMessage}`,
+                            venvName: args?.venvName || this.config.python.defaultVenvName
+                        }, null, 2),
+                        mediaType: 'application/json'
+                    }
+                ],
+                isError: true
+            };
+        }
+    }
+    async handleExecutePythonFile(args) {
+        try {
+            // Validate input arguments
+            if (!isValidExecutePythonFileArgs(args)) {
+                throw new ExecutorError(ErrorCode.INVALID_INPUT, 'Missing or invalid filePath parameter.');
+            }
+            const { filePath, venvName, inputData } = args;
+            const targetVenvName = venvName || this.config.python.defaultVenvName;
+            // Verify the environment exists or create it
+            await this.venvManager.setupVirtualEnvironment(targetVenvName);
+            // Increment counter for active executions
+            this.activeExecutions++;
+            try {
+                // Get activation details for the virtual environment
+                const { activateCmd, isWindows, pythonExecutable } = this.venvManager.getActivationDetails(targetVenvName);
+                // Check if the file exists
+                await fs.access(filePath, fs.constants.F_OK)
+                    .catch(() => {
+                    throw new ExecutorError(ErrorCode.INVALID_INPUT, `Python file not found: ${filePath}`);
+                });
+                // Prepare input data if provided
+                let inputString = '';
+                if (inputData && Array.isArray(inputData)) {
+                    inputString = inputData.join('\n') + '\n';
+                }
+                // Execute the script
+                let stdout = '';
+                let stderr = '';
+                try {
+                    if (isWindows) {
+                        // On Windows, use cmd.exe with activation command
+                        const command = `${activateCmd}python "${filePath}"`;
+                        const execOptions = {
+                            timeout: this.config.execution.timeoutMs,
+                            env: { ...process.env },
+                            shell: 'cmd.exe',
+                            // Provide input data if available
+                            input: inputString || undefined
+                        };
+                        const { stdout: procStdout, stderr: procStderr } = await execAsync(command, execOptions);
+                        stdout = procStdout;
+                        stderr = procStderr;
+                    }
+                    else {
+                        // On Unix, use spawn directly with the Python executable from the venv
+                        const pythonProcess = spawn(pythonExecutable, [filePath], {
+                            timeout: this.config.execution.timeoutMs,
+                            env: { ...process.env }
+                        });
+                        // Provide input data if available
+                        if (inputString) {
+                            pythonProcess.stdin.write(inputString);
+                            pythonProcess.stdin.end();
+                        }
+                        // Collect stdout and stderr
+                        pythonProcess.stdout.on('data', (data) => {
+                            stdout += data.toString();
+                        });
+                        pythonProcess.stderr.on('data', (data) => {
+                            stderr += data.toString();
+                        });
+                        // Wait for completion
+                        await new Promise((resolve, reject) => {
+                            pythonProcess.on('close', (code) => {
+                                if (code === 0) {
+                                    resolve();
+                                }
+                                else {
+                                    // Non-zero exit code doesn't always mean an error in Python
+                                    // Just store the exit code to return to the client
+                                    stderr = `${stderr}\nProcess exited with code ${code}`;
+                                    resolve();
+                                }
+                            });
+                            pythonProcess.on('error', (err) => {
+                                reject(err);
+                            });
+                        });
+                    }
+                }
+                finally {
+                    // No temporary file to clean up as we are using a provided filePath
+                }
+                // Extract Python error if present in stderr
+                const errorMatch = stderr.match(/^(?:Traceback.*?^)([A-Za-z]+Error.+?)(?:\n|$)/ms);
+                const hasError = !!errorMatch || stderr.includes('Error:') || stderr.includes('Exception:');
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: JSON.stringify({
+                                stdout,
+                                stderr,
+                                venvName: targetVenvName,
+                                error: errorMatch ? errorMatch[1] : null,
+                                hasError
+                            }, null, 2),
+                            mediaType: 'application/json'
+                        }
+                    ],
+                    isError: hasError
+                };
+            }
+            finally {
+                // Decrement counter for active executions
+                this.activeExecutions--;
+            }
+        }
+        catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger?.error?.('Python file execution error', {
+                error: errorMessage,
+                filePath: args?.filePath,
+                venvName: args?.venvName
+            });
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            status: 'error',
+                            message: `Error executing Python file: ${errorMessage}`,
+                            filePath: args?.filePath,
                             venvName: args?.venvName || this.config.python.defaultVenvName
                         }, null, 2),
                         mediaType: 'application/json'

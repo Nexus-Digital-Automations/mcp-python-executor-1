@@ -61,3 +61,7 @@ Thumbs.db
 .uv/
 node_modules/
 *.log
+
+venvs/
+.github/
+.history/

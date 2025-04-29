@@ -177,30 +177,50 @@ export class VenvManager {
   /**
    * Create a virtual environment if it doesn't exist
    * @param venvName Name of the virtual environment
+   * @param pythonVersion Optional Python version to use (e.g., "3.9", "python3")
    * @returns Promise that resolves when the environment is ready
    */
-  async setupVirtualEnvironment(venvName?: string): Promise<void> {
+  async setupVirtualEnvironment(venvName?: string, pythonVersion?: string): Promise<void> {
     const targetVenvName = venvName || this.config.python.defaultVenvName;
     
     return this.withVenvLock(targetVenvName, async () => {
       // Get validated path
       const venvPath = this.getVenvPath(targetVenvName);
-      this.logger.debug('Attempting to setup virtual environment', { path: venvPath });
+      this.logger.debug('Attempting to setup virtual environment', { path: venvPath, pythonVersion });
 
       // Check if the venv already exists
       const venvExists = await this.checkVenvExists(targetVenvName);
 
       if (!venvExists) {
-        this.logger.info('Creating virtual environment', { path: venvPath });
+        this.logger.info('Creating virtual environment', { path: venvPath, pythonVersion });
         
         // Ensure parent directories exist
         await fs.mkdir(path.dirname(venvPath), { recursive: true });
 
-        // Use system's python to create the venv with pip
+        // Determine the Python executable to use for venv creation
+        let pythonExecutableCommand: string;
+        if (pythonVersion) {
+          // Check if the provided version looks like a simple version number (e.g., "3.12")
+          const versionMatch = pythonVersion.match(/^(\d+\.\d+)$/);
+          if (versionMatch) {
+            // If it's a version number, assume the command is "python" + version (e.g., "python3.12")
+            pythonExecutableCommand = `python${versionMatch[1]}`;
+          } else {
+            // Otherwise, use the provided string as the command (e.g., "python3", "/usr/local/bin/python3.12")
+            pythonExecutableCommand = pythonVersion;
+          }
+        } else {
+          // If no pythonVersion is provided, use the system default 'python' command
+          pythonExecutableCommand = 'python';
+        }
+
+        const pythonCmd = [pythonExecutableCommand, '-m', 'venv', '--clear', '--without-pip', venvPath] as [string, ...string[]];
+
+        // Use system's python (or specified version) to create the venv
         try {
           // Create venv with pip support and without site packages (for isolation)
           // Use array-based command for better security
-          await this.execCommand(['python', '-m', 'venv', '--clear', '--without-pip', venvPath]);
+          await this.execCommand(pythonCmd);
           
           // Install pip using the ensurepip module
           const { activateCmd, isWindows, pythonExecutable } = this.getActivationDetails(targetVenvName);
@@ -213,19 +233,34 @@ export class VenvManager {
               env: { ...process.env },
               shell: 'cmd.exe'
             });
+
+            // Add command to upgrade pip after ensurepip
+            const pipUpgradeCmd = `${activateCmd}python -m pip install --upgrade pip`;
+            await this.execCommand(pipUpgradeCmd, {
+              timeout: this.config.execution.packageTimeoutMs,
+              env: { ...process.env },
+              shell: 'cmd.exe'
+            });
           } else {
             // On Unix, we can directly use the Python executable from the venv
             await this.execCommand([pythonExecutable, '-m', 'ensurepip', '--upgrade'], {
               timeout: this.config.execution.packageTimeoutMs,
               env: { ...process.env }
             });
+
+            // Add command to upgrade pip after ensurepip
+            await this.execCommand([pythonExecutable, '-m', 'pip', 'install', '--upgrade', 'pip'], {
+              timeout: this.config.execution.packageTimeoutMs,
+              env: { ...process.env }
+            });
           }
           
-          this.logger.info('Successfully created virtual environment with pip', { path: venvPath });
+          this.logger.info('Successfully created virtual environment with pip and upgraded pip', { path: venvPath });
         } catch (error) {
-          this.logger.error('Failed to create virtual environment', { 
-            path: venvPath, 
-            error: error instanceof Error ? error.message : String(error) 
+          this.logger.error('Failed to create or initialize virtual environment', {
+            path: venvPath,
+            pythonVersion,
+            error: error instanceof Error ? error.message : String(error)
           });
           
           // Attempt to clean up potentially incomplete venv directory
@@ -238,7 +273,7 @@ export class VenvManager {
           
           throw new ExecutorError(
             ErrorCode.INTERNAL_ERROR, 
-            `Failed to create virtual environment: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to create or initialize virtual environment: ${error instanceof Error ? error.message : String(error)}`
           );
         }
       } else {

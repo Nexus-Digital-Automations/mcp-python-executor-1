@@ -52,6 +52,11 @@ Key virtual environment features:
 - Detailed metadata for each environment
 - Command execution within the context of specific environments
 - Consistent fallback to default environment
+- Smart handling of Python version specification
+
+When creating virtual environments with specific Python versions, you can use either:
+- A full command or path (e.g., "python3", "/usr/bin/python3.9")
+- Just the version number (e.g., "3.12") which is automatically converted to the corresponding executable name (e.g., "python3.12")
 
 ## File Output Operations
 
@@ -185,7 +190,46 @@ Examples:
 1. Your code includes the output directory handling pattern shown above
 2. The OUTPUT_PATH environment variable is set to a writable directory before execution
 
-### 2. install_packages
+### 2. execute_python_file
+
+Execute a Python file within a specified virtual environment.
+
+```typescript
+interface ExecutePythonFileArgs {
+  filePath: string;       // Path to the Python file to execute
+  venvName?: string;      // Optional virtual environment name
+  inputData?: string[];   // Optional input data
+}
+```
+
+Features:
+- Execute an existing Python script file
+- Use a specific virtual environment for execution
+- Pass input data to the script via stdin
+- Capture stdout and stderr
+- Error handling and timeout protection
+
+Example:
+
+```javascript
+// Execute a specific Python file using a custom environment
+{
+  "filePath": "/path/to/your/existing_script.py",
+  "venvName": "my-project-env",
+  "inputData": ["line1", "line2"]
+}
+
+// Execute a Python file in the default environment
+{
+  "filePath": "/path/to/your/script.py"
+}
+```
+
+**Note**: When executing code that saves files, ensure that:
+1. Your code includes the output directory handling pattern shown in the execute_python example
+2. The OUTPUT_PATH environment variable is set to a writable directory before execution
+
+### 3. install_packages
 
 Install Python packages.
 
@@ -211,7 +255,7 @@ Example:
 }
 ```
 
-### 3. uninstall_packages
+### 4. uninstall_packages
 
 Uninstall Python packages.
 
@@ -237,7 +281,7 @@ Example:
 }
 ```
 
-### 4. list_packages
+### 5. list_packages
 
 List installed packages.
 
@@ -259,7 +303,7 @@ Example:
 {}
 ```
 
-### 5. list_venvs
+### 6. list_venvs
 
 List all available virtual environments.
 
@@ -269,7 +313,7 @@ interface ListVenvsArgs {
 }
 ```
 
-### 6. create_venv
+### 7. create_venv
 
 Create a new virtual environment.
 
@@ -277,19 +321,35 @@ Create a new virtual environment.
 interface CreateVenvArgs {
   venvName: string;      // Name for the new virtual environment
   description?: string;  // Optional description
+  pythonVersion?: string; // Optional Python version to use (e.g., "3.9", "python3")
 }
 ```
 
 Example:
 
 ```javascript
+// Create with full Python command specification
 {
   "venvName": "machine-learning",
-  "description": "Environment for ML projects with TensorFlow"
+  "description": "Environment for ML projects with TensorFlow",
+  "pythonVersion": "python3.9" // Specify Python executable to use
+}
+
+// Create with just version number (will be prefixed with "python" automatically)
+{
+  "venvName": "data-science",
+  "description": "Environment for data analysis",
+  "pythonVersion": "3.12" // Will be converted to "python3.12" automatically
 }
 ```
 
-### 7. delete_venv
+When creating a virtual environment:
+- The environment will be created with the specified Python version if provided
+- Version-only inputs (e.g., "3.12") are automatically converted to executable names (e.g., "python3.12")
+- pip will automatically be installed and upgraded to the latest version
+- The environment will be isolated from system packages
+
+### 8. delete_venv
 
 Delete a virtual environment.
 
@@ -308,7 +368,7 @@ Example:
 }
 ```
 
-### 8. set_venv_description
+### 9. set_venv_description
 
 Update the description for a virtual environment.
 
@@ -328,7 +388,7 @@ Example:
 }
 ```
 
-### 9. health_check
+### 10. health_check
 
 Check health of the server and virtual environments.
 

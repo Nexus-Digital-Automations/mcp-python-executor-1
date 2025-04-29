@@ -220,14 +220,15 @@ All tool handlers in the PythonExecutorServer class now follow a consistent patt
 
 The server currently implements the following tools:
 1. `execute_python`: Executes Python code with input/output handling
-2. `install_packages`: Installs Python packages in a virtual environment
-3. `uninstall_packages`: Removes Python packages from a virtual environment
-4. `list_packages`: Lists installed packages in a virtual environment
-5. `health_check`: Provides health status of the server and environments
-6. `list_venvs`: Lists available virtual environments
-7. `create_venv`: Creates a new virtual environment
-8. `delete_venv`: Deletes an existing virtual environment
-9. `set_venv_description`: Updates the description for a virtual environment
+2. `execute_python_file`: Executes a Python file within a specified virtual environment
+3. `install_packages`: Installs Python packages in a virtual environment
+4. `uninstall_packages`: Removes Python packages from a virtual environment
+5. `list_packages`: Lists installed packages in a virtual environment
+6. `health_check`: Provides health status of the server and environments
+7. `list_venvs`: Lists available virtual environments
+8. `create_venv`: Creates a new virtual environment
+9. `delete_venv`: Deletes an existing virtual environment
+10. `set_venv_description`: Updates the description for a virtual environment
 
 ## Error Handling Architecture
 
@@ -259,4 +260,35 @@ The system implements a comprehensive error handling strategy:
 
 6. **Structured Startup Phases**: Implement a more structured startup process with clear phases and status reporting.
 
-7. **Configuration Validation**: Add formal schema validation for configuration objects. 
+7. **Configuration Validation**: Add formal schema validation for configuration objects.
+
+## Virtual Environment Management Architecture
+
+The MCP Python Executor now implements a comprehensive virtual environment management system with enhanced capabilities:
+
+1. **Multiple Named Environments**: The system supports multiple named virtual environments, each with its own isolated packages.
+
+2. **Python Version Specification**: Users can now specify which Python version to use when creating a virtual environment:
+   - The `create_venv` tool accepts an optional `pythonVersion` parameter
+   - This parameter can be a version number (e.g., "3.9") or a specific Python executable path
+   - The specified Python is used to create the environment, ensuring compatibility with specific projects
+   - If no Python version is specified, the system default Python is used
+   - Version-only inputs (e.g., "3.12") are automatically prefixed with "python" to form the executable name (e.g., "python3.12")
+   - A regex pattern is used to detect if the input is just a version number, ensuring proper command construction
+
+3. **Automatic pip Upgrades**: All newly created environments automatically have pip upgraded to the latest version:
+   - After environment creation, the system runs `python -m pip install --upgrade pip`
+   - This ensures that package installations use the latest pip features and security updates
+   - The upgrade process is handled differently on Windows vs. Unix systems for compatibility
+
+4. **Environment Metadata**: Each environment stores metadata including:
+   - Description (user-defined purpose)
+   - Creation information
+   - Python version information
+
+5. **Security Measures**:
+   - Virtual environment names are strictly validated to prevent directory traversal
+   - Array-based command execution is used for better security
+   - Environment-specific operations have proper locking mechanisms
+
+These capabilities provide users with greater flexibility in managing Python environments for different projects and requirements, while maintaining security and isolation between environments. 
